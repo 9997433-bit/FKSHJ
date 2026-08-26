@@ -56,3 +56,19 @@ checksum 为 `925273169`。
 ## Smoke
 
 `npm run smoke` 实测通过，共检查 16 个必需文件。
+
+## Round 3 当前 HEAD 复测
+
+2026-08-26 UTC 在 commit `3da67417de15bc65a290400bdf7045d173ee5c81`
+上使用 Node `v22.14.0` 和默认预算倍数 `1` 依次实跑
+`npm run probe`、`npm run bench`、`npm run smoke`。
+
+| workload | median | p95 | 预算 | 结论 |
+| --- | ---: | ---: | ---: | --- |
+| raft-expansion | 9.211 ms | 9.550 ms | 120 ms | 通过 |
+| debris-generation | 159.228 ms | 163.834 ms | 225 ms | 通过 |
+| production-consumption-step | 7.885 ms | 7.958 ms | 80 ms | 通过 |
+
+基准汇总为 3/3 通过，workload checksum 为 `925273169`。确定性探针结果为
+`ok: true`、`status: "deterministic"`，probe hash 为 `728b59b5`（300 tick、
+9 个磁带事件、2,389 bytes）。Smoke 检查 16/16 个必需文件并通过。

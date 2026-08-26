@@ -44,4 +44,4 @@
 | opus-content | cloud | `bc-38531cf3-2537-51f4-bd67-178c8f004638` | 进行中 |
 | opus-core | local | `bc-9c1a6d9a-3d86-536e-a7ed-fc5208d181f0` | 进行中 |
 | gpt-test | local | `bc-cd7870c0-974d-55bb-87f4-68d0f9a3ef61` | 进行中 |
-| gpt-probe | local | `bc-5bf5120d-9eb0-5217-b60e-f050f8dedffb` | 进行中 |
+| gpt-probe | local | `bc-5bf5120d-9eb0-5217-b60e-f050f8dedffb` | 已交卷（BENCH 已按当前 HEAD 刷新） |
