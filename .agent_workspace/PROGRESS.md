@@ -18,16 +18,20 @@
 | 轮次 | 状态 | 说明 |
 | --- | --- | --- |
 | 准备 | 完成 | 规格、所有权、可玩骨架（测试 7 通过，生产构建成功） |
-| Round 1 | 派发中 | 6 云端子代理：初始构建与基线探索 |
+| Round 1 | 执行中 | 云端 VM 并发上限为 3；本轮 3 云端 + 3 本机，覆盖 6 路角色 |
 | Round 2 | 未开始 | 靶向重构 |
 | Round 3 | 未开始 | SOTA 打磨与验收 |
 | 归档合并 | 未开始 | 结构化 PR |
 
-## Round 1 派发计划
+## Round 1 派发记录
 
-1. fable-arch — 全局架构与引擎契约
-2. fable-sota — SOTA 视觉/UX 复审与菜单主题
-3. opus-core — 物理、碰撞、玩家、滑道
-4. opus-content — 关卡、实体、特效、音频、存档
-5. gpt-test — 单测与逻辑覆盖
-6. gpt-probe — 性能基准与冒烟探针
+| 角色 | 简称 | 实际 slug | 环境 | Agent ID | 状态 |
+| --- | --- | --- | --- | --- | --- |
+| 架构引擎 | fable | claude-fable-5-thinking-xhigh | cloud | `bc-c3841b55-6495-55ed-b91f-0bfe541a404e` | 运行中 |
+| SOTA UX | fable | claude-fable-5-thinking-xhigh | cloud | `bc-680fc86e-e1a4-5034-8aea-9f8e61d7dd17` | 运行中 |
+| 内容特效 | opus-fast | claude-opus-5-thinking-high-fast | cloud | `bc-287bff11-630f-5105-9ac1-e75ab4e735e8` | 运行中 |
+| 核心玩法 | opus-fast | claude-opus-5-thinking-high-fast | local | `bc-f3586f19-030d-5668-9bb1-afa8ace61564` | 运行中 |
+| 单测覆盖 | gpt-sol | gpt-5.6-sol-xhigh-fast | local | `bc-9fcce4c8-069a-5523-9d38-a0c8200a928f` | 运行中 |
+| 探针基准 | gpt-sol | gpt-5.6-sol-xhigh-fast | local | `bc-aaa77fd6-0569-5a4c-948c-c5252e446880` | 运行中 |
+
+平台约束：异步新云端 VM 上限为 3，因此 fable×2 + opus-content 走云端独立工作树；opus-core / gpt-test / gpt-probe 走本机隔离任务（文件所有权不重叠）。未静默更换模型 slug。
