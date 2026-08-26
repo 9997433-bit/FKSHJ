@@ -1,18 +1,26 @@
 # 架构 —《疯狂水世界》海上末日生存原型
 
-Round 1 fable-arch 出品，Round 2 与运行中的 sim 对齐。本文是各子代理
-之间的**接口契约**：模块归属见 `OWNERSHIP.md`，玩法定义见 `GAME_SPEC.md`。
+Round 1 fable-arch 出品，Round 2 与运行中的 sim 对齐，Round 3 核验对齐
+并明确收编路径。本文是各子代理之间的**接口契约**：模块归属见
+`OWNERSHIP.md`，玩法定义见 `GAME_SPEC.md`。
 
-**数值的真相在哪（Round 2 更正）**：
+**数值的真相在哪（Round 3 现状与分工）**：
 
-- 运行时数值的真相在 sim 侧本地副本：`sim/rules.ts`（资源/建筑/网格）、
-  `sim/economy.ts`（产出/吃喝/维修/断粮）、`sim/threats.ts`（风暴/海盗波/
-  炮塔）、`entities/skiff.ts` 与 `entities/pirate.ts`（小船/海盗手感）。
-- `src/data/constants.ts` 是**文档 + 共享数**：其中 CANVAS、LOOP、
-  SAVE_KEY、DAY、SALVAGE 被运行时真实消费（junk/ocean/engine/loop/save
-  从它 import）；其余段落是与 sim 手工同步的镜像，仅供查数与平衡讨论。
-- 改平衡：改 sim 原件，再同步 constants 的镜像段。两边不一致时，
-  **以能跑的 sim 为准**。
+- `src/data/constants.ts` 的镜像段**已逐项核验与 sim 数字对齐**
+  （网格/资源/建筑/产消/风暴/海盗/炮塔/小船，含 `TURRET.range =
+  TILE × 5`、`SKIFF.scoopRadius = TILE × 1.5` 这类派生值）。
+- 但 sim 目前仍读自己的本地副本：`sim/rules.ts`（资源/建筑/网格）、
+  `sim/economy.ts`（产出/吃喝/维修/断粮）、`sim/threats.ts`（风暴/
+  海盗波/炮塔）、`entities/skiff.ts` 与 `entities/pirate.ts`（小船/
+  海盗手感）。**Round 3 由 opus-core 负责**把 sim/entities 改为直接
+  import constants 的这些数，完成后 constants 即唯一真源；fable-arch
+  不改 sim。
+- `constants.ts` 中 CANVAS、LOOP、SAVE_KEY、DAY、SALVAGE **现在就
+  被运行时真实消费**（engine/input/hud/sim-rules 吃 CANVAS，loop 吃
+  LOOP，save 吃 SAVE_KEY，ocean 吃 DAY，junk 吃 SALVAGE），这五个
+  改这里就是改游戏。
+- 在 opus-core 完成收编之前，改平衡仍改 sim 原件，再同步 constants
+  的镜像段；两边不一致时，**以能跑的 sim 为准**。
 - 全游戏只有一套网格（TILE = 64px、原点画布正中、有符号格坐标），
   **禁止再发明第二套网格**。
 
@@ -108,7 +116,7 @@ input.snapshot()            采样键鼠 → 只读快照（本帧内不再变�
   换算走 `tileCenter` / `worldToTile`。没有 gridW/gridH——网格无边界，
   木筏靠四邻接向外扩张。
 - 开局 3×3（|gx| ≤ 1 且 |gy| ≤ 1），中心 (0, 0) 是指挥中心 `core`
-  （不可建造、不可拆除；Round 1 文档旧名 `hq` 已废弃）。
+  （不可建造、不可拆除）。
 - 小船、海盗、漂浮物在连续坐标系运动，只有建筑吸附网格。小船活动
   范围是 `SEA_BOUNDS`（木筏为中心 1920×1080）；漂浮物默认只在可见
   画布内漂（见 junk.ts 的 DEFAULT_BOUNDS）。
@@ -211,6 +219,7 @@ maxHp，不能靠重建洗血。无建造耗时。`refund` / `scrapValue`（半�
 - 人口 = 3 + 每座非地基建筑 1（economy CREW），是被动增长；
   主动招募/岛民个体化仍是后续议题。
 - `refund` / `scrapValue` 已在 sim 备好但没接进玩家操作（无拆迁按钮）。
-- sim 各文件的本地数值副本与 constants 镜像段的**机械同步**（让 sim
-  直接 import constants）留给后续轮；本轮只保证两边数字一致。
+- 让 sim/entities 直接 import constants（收编为唯一真源）：**Round 3
+  归 opus-core**。fable-arch 侧已完成前置：数字逐项对齐、删除废弃的
+  `StructureId`（旧名 `hq`）别名与旧网格叙事，镜像段可直接被 import。
 - 音频节点图、HUD 具体布局分别归 opus-content / fable-sota，不在本文约束。

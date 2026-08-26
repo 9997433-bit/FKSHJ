@@ -1,5 +1,5 @@
 /**
- * 全局数值表（fable-arch 维护；Round 2 已与 sim 对齐）。
+ * 全局数值表（fable-arch 维护；Round 3 已逐项核验与 sim 数字对齐）。
  *
  * 先读这段再改数——本文件的导出分两类：
  *
@@ -10,11 +10,13 @@
  *
  * 2. 【文档镜像】其余全部（TILE、RESOURCE_CAP、START_RESOURCES、
  *    BUILD_COST、STRUCTURE_HP、PRODUCTION、CREW/UPKEEP/REPAIR/STARVE、
- *    STORM/WAVE/TURRET、PIRATE、SKIFF）。运行时真相在 sim 侧本地副本：
- *    `sim/rules.ts`（资源/建筑/网格）、`sim/economy.ts`（产出/吃喝/维修/
- *    断粮）、`sim/threats.ts`（风暴/海盗波/炮塔）、`entities/skiff.ts` 与
- *    `entities/pirate.ts`（小船/海盗手感）。sim 并**不** import 镜像段；
- *    改平衡请改 sim 原件，再回来同步这里。两边不一致时，以能跑的 sim 为准。
+ *    STORM/WAVE/TURRET、PIRATE、SKIFF）。数字已与 sim 侧本地副本逐项
+ *    对齐：`sim/rules.ts`（资源/建筑/网格）、`sim/economy.ts`（产出/
+ *    吃喝/维修/断粮）、`sim/threats.ts`（风暴/海盗波/炮塔）、
+ *    `entities/skiff.ts` 与 `entities/pirate.ts`（小船/海盗手感）。
+ *    sim 目前尚**不** import 镜像段——Round 3 由 opus-core 负责把
+ *    sim/entities 改为直接 import 这里的数，收编为唯一真源；在那之前
+ *    改平衡仍改 sim 原件，再回来同步这里，两边不一致时以能跑的 sim 为准。
  *
  * 约定：
  * - 单位：长度 = 逻辑像素（CANVAS 坐标系），时间 = 秒。
@@ -82,8 +84,7 @@ export const SALVAGE = {
  * - origin 是 (0, 0) 格的**中心**（不是左上角）：
  *   center = (originX + gx × sizePx, originY + gy × sizePx)，
  *   换算函数见 sim/rules.ts 的 tileCenter / worldToTile。
- * - 没有 gridW / gridH：网格无边界，木筏靠四邻接向外扩张；
- *   Round 1 文档里的 15×11 / 48px / 左上角原点网格已废弃。
+ * - 没有 gridW / gridH：网格无边界，木筏靠四邻接向外扩张。
  * - 小船活动海域另见 sim/rules.ts SEA_BOUNDS（木筏为中心 1920×1080）。
  */
 export const TILE = {
@@ -132,12 +133,6 @@ export type PlaceableId = "floor" | "collector" | "purifier" | "fish" | "turret"
 
 /** 格子上可能站着的东西；`core` 是开局预置的指挥中心，玩家造不出来。 */
 export type BuildingId = PlaceableId | "core";
-
-/**
- * @deprecated Round 1 曾把指挥中心叫 `hq`；运行时 id 是 `core`
- * （sim/rules.ts BUILDINGS.core）。此别名只为旧文档兜底，别在新代码用。
- */
-export type StructureId = BuildingId;
 
 /**
  * 建造花费（= sim BUILDINGS[id].cost）。放置是原子的：先 canAfford
