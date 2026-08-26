@@ -6,10 +6,11 @@ import { drawHazard } from "./entities/obstacle";
 import { Player } from "./entities/player";
 import { Sfx } from "./fx/audio";
 import { capParticles, drawParticles, MAX_PARTICLES, type Particle } from "./fx/particles";
+import { speedLines } from "./fx/speedlines";
 import { bigSplash, boostWake, sparkle, splash } from "./fx/splash";
 import { circleHit, sameLane } from "./game/collision";
 import { project } from "./game/camera";
-import { applyBoost, applyHit, comboBonus, stepSpeed } from "./game/physics";
+import { applyBoost, applyHit, boostEase, comboBonus, stepSpeed } from "./game/physics";
 import {
   generateAhead,
   generateWorld,
@@ -97,6 +98,13 @@ export class Session {
     this.collect();
     this.hazards();
     this.boosts();
+    speedLines(
+      this.particles,
+      dt,
+      this.speed01,
+      themeCycleAt(this.distance).foam,
+      boostEase(this.player.motion.boostLeft, this.player.motion.boostSpan),
+    );
     if (this.player.hp <= 0) this.over = true;
   }
 
