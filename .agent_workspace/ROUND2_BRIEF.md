@@ -1,26 +1,19 @@
-# Round 2 简报 — 在已接线的海上生存上收口
+# Round 2 结论
 
-父调度器已接线。`npm test` 4/4，`npm run probe` = deterministic（`728b59b5`），`vite build` 打进 25 个模块。
+六路均已交卷。父调度器已把 HUD 新字段和 `world/craft` 船体接到 `session.ts`。
+`npm test` 8/8，`npm run probe` 仍为 deterministic（`728b59b5`）。
 
-## 不要动
+| 角色 | 产出 |
+| --- | --- |
+| fable-arch | `constants.ts` 与 sim 数字对齐；ARCHITECTURE / README 改口「sim 是运行时真相」 |
+| fable-sota | HUD 可选 `storm01` / `starve01` / `hintDanger`；空选中建造提示 |
+| opus-content | `src/world/craft.ts`：`drawSkiff` / `drawPirate(s)`，与涌浪同相 |
+| opus-core | `placeHint`；捞取高亮与 `pickJunk` 同半径；菜单空格不再粘住 `scoopHeld` |
+| gpt-test | headless Session 建造磁带 + `gameoverCopy` |
+| gpt-probe | BENCH 换成接线后实测，探针不再是 not-wired |
 
-- `src/session.ts` / `src/main.ts` 只由父调度器改
-- 别人的路径（见 `OWNERSHIP.md`）
-- 禁止静默换模型；首行必须：`MODEL_SLUG: <实际 slug>`
-- 禁止官方角色名/立绘、陈小春肖像、官方曲、照抄数值表
-- 这是海上拾荒 + 浮岛基建，不是滑道街机
+## 还没做完（Round 3）
 
-## 运行时真相（sim，不是 constants 镜像）
-
-- `TILE = 64`，`RAFT_ORIGIN` = 画布中心，开局 3×3，指挥中心 `(0,0)` id=`core`
-- 资源键：`wood/plastic/metal/rope/water/food`
-- `HOTBAR`：`floor` `collector` `purifier` `fish` `turret`
-- 小船 `SKIFF.scoopRadius = TILE * 1.5`，`beginScoop` 有冷却
-- HUD 资源键必须是 `wood` 不是 `plank`；结算 `endedBy: "starved" | "coreDown"`
-- 存档键 `cww_sea_v1`
-
-`src/data/constants.ts` 里那套 `sizePx:48` / `hq` / `STARTING_STOCK` **是谎言**。画图与放置以 sim 为准。
-
-## 本轮目标
-
-统一数值表、补小船/海盗质感、HUD 风暴/饥饿、局级单测、刷新 BENCH。
+- sim / entities 仍持有本地数值副本，未改 import constants
+- 浏览器端到端（捞、建、停、死、再来）未当验收关掉
+- GitHub Pages 仍是旧滑道包，合 `main` 后要重跑 workflow
