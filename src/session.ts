@@ -15,6 +15,7 @@ import { drawTrack } from "./world/track";
 import { drawFoam, drawSilhouettes, drawSky } from "./world/water";
 import { themeAt } from "./ui/theme";
 import { drawHud } from "./ui/hud";
+import { drawPlayerRing, ringRoll } from "./ui/tube";
 
 export type RunResult = {
   score: number;
@@ -230,23 +231,18 @@ export class Session {
     drawables.push({
       z: 80,
       draw: () => {
-        const jumpLift = this.player.hopLift();
         const pr = project(this.player.laneX, 80);
         ctx.save();
-        ctx.translate(pr.x, pr.y - jumpLift * pr.s);
+        ctx.translate(pr.x, pr.y);
         ctx.scale(pr.s, pr.s);
-        ctx.fillStyle = "rgba(0,0,0,0.25)";
-        ctx.beginPath();
-        ctx.ellipse(0, 18, 26, 8, 0, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.fillStyle = this.player.invuln > 0 ? theme.accent : theme.hp;
-        ctx.beginPath();
-        ctx.ellipse(0, 0, 30, 18, 0, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.fillStyle = theme.ink;
-        ctx.beginPath();
-        ctx.ellipse(-8, -4, 10, 6, 0, 0, Math.PI * 2);
-        ctx.fill();
+        drawPlayerRing(ctx, {
+          theme,
+          time: this.time,
+          speed01,
+          lift: this.player.hopLift(),
+          roll: ringRoll(this.player),
+          invuln: this.player.invuln,
+        });
         ctx.restore();
         if (Math.random() < 0.3 + speed01 * 0.4) {
           splash(this.particles, pr.x, pr.y + 10, theme.foam, speed01);
