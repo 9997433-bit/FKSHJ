@@ -43,5 +43,5 @@
 | fable-sota | cloud | `bc-b89f8894-bd24-5d85-89e3-ac6fff25db25` | 进行中 |
 | opus-content | cloud | `bc-88106807-a276-5c5d-a0aa-ade423772102` | 进行中 |
 | opus-core | local | `bc-8c47b3ae-d84a-5025-a678-bd7a041b4b7e` | 进行中 |
-| gpt-test | local | `bc-4d22ee57-eafd-55d3-9b3c-059f72ddf5d8` | 进行中 |
+| gpt-test | local | `bc-4d22ee57-eafd-55d3-9b3c-059f72ddf5d8` | 已交卷（session/menus 单测） |
 | gpt-probe | local | `bc-20a977e8-e26f-53ff-a16c-890f40fe8b3f` | 已交卷（BENCH 已按接线后实测刷新） |
