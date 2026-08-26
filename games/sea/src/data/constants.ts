@@ -14,6 +14,10 @@
  *    这些数；对外仍导出 `TILE = 64`、`RAFT_ORIGIN` 等旧形状，绘制层
  *    不用跟着改。改平衡改本文件一处即可。
  *
+ * 3. 【Round 1 新系统】INVENTORY / ITEM_DROP / REQUESTS / STORY
+ *    （文件末尾第三段）。物品栏、委托板、剧情三个新模块出生即直接
+ *    import 这些表，没有本地副本一说。接线契约见 ARCHITECTURE §7。
+ *
  * 约定：
  * - 单位：长度 = 逻辑像素（CANVAS 坐标系），时间 = 秒。
  * - 网格全游戏只有一套：格边长 64px、原点在画布正中、格坐标为有符号
@@ -259,4 +263,58 @@ export const SKIFF = {
   scoopCooldownS: 0.22,
   /** 低于此速度直接判停 */
   restSpeed: 3,
+} as const;
+
+// ═══════════════════════════════════════════════════════════════════
+// 三、Round 1 新系统（物品 / 委托 / 剧情）——出生即唯一真源
+// ═══════════════════════════════════════════════════════════════════
+//
+// 下面四张表由新模块直接 import（sim/inventory.ts、sim/expand.ts、
+// story/index.ts），不留本地副本。内容表不进本文件：物品定义在
+// data/catalog.ts、委托生成表在 sim/expand.ts、台词在 story/lines.ts。
+// 类型与函数签名的接线契约见 ARCHITECTURE §7。
+// 本段只加新数，前两段（探针基线）一个数没动。
+
+/** 物品栏（sim/inventory.ts 消费）。物品与六种资源分开存，互不占上限。 */
+export const INVENTORY = {
+  /** 单种物品持有上限，超出丢弃（与 RESOURCE_CAP 同哲学） */
+  maxPerItem: 20,
+  /** HUD 物品栏一屏展示的格数（只影响展示，不限持有种类） */
+  hudSlots: 6,
+} as const;
+
+/**
+ * 物品掉落（sim/inventory.ts 的 rollItemDrop 消费）。
+ * 接线点：session.tryScoop() 捞取成功后掷一次，用 session.rng。
+ */
+export const ITEM_DROP = {
+  /** 每次捞取成功附带掉一件物品的概率 */
+  chance: 0.25,
+  /** 保底：连续 pityScoops 次没出货，下一次必出 */
+  pityScoops: 5,
+} as const;
+
+/**
+ * 岛民委托板（sim/expand.ts 消费）。firstS 早于首场风暴（STORM.firstS
+ * = 50s），玩家在第一场灾难前就有个主动目标。
+ */
+export const REQUESTS = {
+  /** 开局到第一单的秒数 */
+  firstS: 35,
+  /** 之后的发单间隔（秒）；板满 maxOpen 时挂起，腾格立刻补单 */
+  intervalS: 40,
+  /** 同时挂在板上的委托上限 */
+  maxOpen: 3,
+  /** 每单从发布到过期的秒数 */
+  expireS: 90,
+} as const;
+
+/** 剧情台词节流与日志（story/index.ts 消费）。展示形式归 HUD 定。 */
+export const STORY = {
+  /** 单条台词在 HUD 的停留秒数 */
+  toastS: 6,
+  /** 两条台词之间的最小间隔（秒） */
+  minGapS: 8,
+  /** 日志保留条数上限，超出丢最旧 */
+  logMax: 40,
 } as const;
