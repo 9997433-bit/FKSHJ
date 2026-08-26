@@ -17,10 +17,13 @@
  * 3. 【Round 1 新系统】第三段：ITEM_DROP / ITEM_USE 是接线
  *    时消费的真相；BAG / BOARD 是 inventory / expand 本地数值的文档
  *    镜像（收编前以原件为准）。接线契约见 ARCHITECTURE §7。
+ *    Round 3 给 ITEM_USE 配了零数值的类型/序/守卫（UsableItemId /
+ *    ITEM_USE_IDS / isUsableItem），吃喝线契约见 ARCHITECTURE §7.5.2。
  *
- * 4. 【Round 2 新表】文件末尾第四段：JUNK_LOOKS（海面外观换装概率）
- *    与 MILESTONES（里程碑判定阈值），出生即唯一真源，消费方直接
- *    import 不留本地副本。接线契约见 ARCHITECTURE §7.7。
+ * 4. 【Round 2 新表】文件末尾第四段：JUNK_LOOKS（海面外观换装概率，
+ *    world/junk.ts 直接 import，是真相）与 MILESTONES（里程碑判定
+ *    阈值——落地后真相长在 sim/expand.ts 的目标链里，本表已降级为
+ *    文档镜像，见该段注释）。接线契约见 ARCHITECTURE §7.7。
  *
  * 约定：
  * - 单位：长度 = 逻辑像素（CANVAS 坐标系），时间 = 秒。
@@ -298,8 +301,12 @@ export const ITEM_DROP = {
 } as const;
 
 /**
- * 可食用/饮用物品 → 资源的兑换率（接线点：HUD 点袋子用掉一件后，
- * session 按本表走 rules.gain() 入库，受 RESOURCE_CAP 截断）。
+ * 可食用/饮用物品 → 资源的兑换率（Round 3 吃喝线的真相；接线契约
+ * 见 ARCHITECTURE §7.5.2）。走向固定两步、各自原子：
+ * HUD 点袋格 → session 调 sim/inventory.ts 的 `useItem(bag, id)`
+ * （原子出袋 1 件、返回本表的 gain 单，不碰 Resources）→ session
+ * 逐项 `gain(res, …)` 入库，超 RESOURCE_CAP 的部分**截断丢弃**
+ * ——满仓吃是浪费，刻意不挡、不退、不倒扣。整条线零 rng。
  * 键必须是 data/catalog.ts 的 ItemId；没列出的物品不能直接吃喝。
  */
 export const ITEM_USE = {
@@ -310,6 +317,20 @@ export const ITEM_USE = {
   /** 净水囊：约 22 秒的全队水耗 */
   freshWater: { water: 8 },
 } as const;
+
+/** 能直接吃喝的物品 id（= ITEM_USE 的键）。 */
+export type UsableItemId = keyof typeof ITEM_USE;
+
+/**
+ * 可吃喝物品的稳定顺序（= ITEM_USE 书写序）。HUD 标「可用」、单测
+ * 列举都按它走，不赌对象键序。Round 3 本段零新数：只加类型/序/守卫。
+ */
+export const ITEM_USE_IDS = Object.keys(ITEM_USE) as readonly UsableItemId[];
+
+/** 点到的袋格能不能吃喝——HUD 置灰与 useItem 头一道校验都走这里。 */
+export function isUsableItem(id: string): id is UsableItemId {
+  return Object.prototype.hasOwnProperty.call(ITEM_USE, id);
+}
 
 /** 【镜像】物品袋容量（格）= sim/inventory.ts 的 DEFAULT_SLOTS。 */
 export const BAG = { slots: 16 } as const;
@@ -349,11 +370,15 @@ export const BOARD = {
 } as const;
 
 // ═══════════════════════════════════════════════════════════════════
-// 四、Round 2 新表（海面外观 / 里程碑）——出生即唯一真源
+// 四、Round 2 新表（海面外观 / 里程碑）
 // ═══════════════════════════════════════════════════════════════════
 //
 // 本段只加新表，前三段一个数没动，探针基线（728b59b5）不受影响。
-// 消费方直接 import、不留本地副本；接线契约见 ARCHITECTURE §7.7。
+// 落地后两表命运分岔（Round 3 核对）：JUNK_LOOKS 被 world/junk.ts
+// 直接 import，仍是唯一真源；MILESTONES 没被谁 import——里程碑随
+// Round 2 落地长在 sim/expand.ts 的目标链里（自带 id/阈值/奖励/文案，
+// 同 BOARD 的「刻意自带数值」路数），本表降级为【文档镜像】，收编待
+// 后续轮。接线契约见 ARCHITECTURE §7.7。
 
 /**
  * 漂浮物外观换装（world/junk.ts 消费）。海面刷出目录物**只换外观**：
@@ -369,26 +394,31 @@ export const JUNK_LOOKS = {
 } as const;
 
 /**
- * 里程碑 id。也是结算/存档里的稳定键：改 id 等于清掉玩家已达成的
- * 记录——改文案可以，id 别动。
+ * 【镜像】里程碑 id = sim/expand.ts 目标链的 id。也是结算/存档里的
+ * 稳定键：改 id 等于清掉玩家已达成的记录——改文案可以，id 别动。
+ * Round 2 落地时「撑过风暴」定名 storm-weathered（本表旧名
+ * first-storm 未被采用，Round 3 已随真相对齐——改的是镜像，
+ * 玩家记录一直以 expand.ts 为准）。
  */
-export type MilestoneId = "first-purifier" | "first-storm" | "raft-12" | "day-3";
+export type MilestoneId = "first-purifier" | "storm-weathered" | "raft-12" | "day-3";
 
-/** 里程碑读哪条可测状态（= MilestoneCtx 的键，见 ARCHITECTURE §7.7）。 */
-export type MilestoneStat = "purifiers" | "stormsSurvived" | "tiles" | "day";
+/** 【镜像】里程碑读哪条轨道（= expand.ts 的 MilestoneTrack / MilestoneFacts 键）。 */
+export type MilestoneStat = "purifiers" | "storms" | "tiles" | "day";
 
 /**
- * 里程碑判定表（sim/expand.ts 的里程碑旁路消费）。
- * 判定 = `ctx[stat] >= goal`：纯阈值比较、零 rng 抽取，天然不碰探针
- * 基线（探针窗口 300 tick ≈ 5s：第 1 天、至多 11 格、零净水机、
- * 零风暴，一条都不会触发）。名称/庆祝文案/奖励是内容，住 expand.ts
- * ——内容表不进本文件的老规矩。
+ * 【镜像】里程碑判定阈值 = sim/expand.ts MILESTONES 的 (track, goal)
+ * ——真相在原件（自带 id/阈值/奖励/文案，谁都不 import 本表），
+ * 收编前改平衡改原件、同步这里。
+ * 判定 = 「轨道历史最大值 ≥ goal」：纯阈值比较、零 rng 抽取，天然
+ * 不碰探针基线（探针窗口 300 tick ≈ 5s：第 1 天、至多 11 格、零
+ * 净水机、零风暴，一条都不会触发）。名称/庆祝文案/奖励是内容，
+ * 住 expand.ts——内容表不进本文件的老规矩。
  */
 export const MILESTONES: Record<MilestoneId, { readonly stat: MilestoneStat; readonly goal: number }> = {
-  /** 首座净水机立起来：purifier 计数 ≥ 1 */
+  /** 首座净水机立起来：purifiers ≥ 1 */
   "first-purifier": { stat: "purifiers", goal: 1 },
-  /** 撑过首场风暴：已结算的风暴场数（threats.storm.count）≥ 1 且局未结束 */
-  "first-storm": { stat: "stormsSurvived", goal: 1 },
+  /** 撑过首场风暴：noteStorm() 累计的已结算场数 ≥ 1（局未结束即算撑过） */
+  "storm-weathered": { stat: "storms", goal: 1 },
   /** 木筏铺到 12 格（开局 3×3 = 9 格；探针磁带只铺到 11，压不到线） */
   "raft-12": { stat: "tiles", goal: 12 },
   /** 活到第 3 天：dayNumber ≥ 3，即 elapsed ≥ 240s（DAY.lengthS × 2） */

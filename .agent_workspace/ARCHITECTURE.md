@@ -3,10 +3,12 @@
 fable-arch 维护。本文是各子代理之间的**接口契约**：模块归属见
 `OWNERSHIP.md`，玩法定义见 `GAME_SPEC.md`。Round 1 新增两块：多游戏
 目录契约（§0）与物品/请求板/剧情三个新系统的接线契约（§7）。三个
-新模块已落地，§7 与实现逐项核对过——**实现即真相**，父调度器照
-§7.5 的清单把它们接进 session。Round 2（把新层折进同一套海）的四条
-支线：掉落线与吃喝线在 §7.5，海面外观线与里程碑线在 §7.7——
-原则是**不开新经济、不开新场景、不扩 snapshot**。
+新模块已落地，§7 与实现逐项核对过——**实现即真相**。Round 2 的四条
+支线已接三条：掉落线（§7.5.1）、海面外观线与里程碑线（§7.7，里程碑
+落地形态与当初契约的出入已按实现改写）。Round 3 收口最后一条
+**吃喝线**：契约在 §7.5.2——inventory 提供 `useItem` 纯函数，
+session（父调度器）两步接线。老原则不变：**不开新经济、不开新场景、
+不扩 snapshot**，探针保持 `728b59b5`。
 
 **数值的真相在哪（现状）**：
 
@@ -131,7 +133,8 @@ boot ──▶ title ──▶ playing ◀──▶ paused
 input.snapshot()              采样键鼠 → 只读快照（本帧内不再变）
   └▶ sim.update(dt, snap)     建造 → 产出 → 消耗 → 风暴 → 海盗 → 胜负
        └▶ updateBoard(dt)     请求板倒计时/贴单/过期（§7.3；交单走玩家操作，不在帧序里）
-            └▶ updateMilestones(ctx) 里程碑达成判定（§7.7.2，Round 2；纯阈值零 rng）
+            └▶ updateMilestones(board, res, facts) 里程碑判定与发奖（§7.7.2；纯阈值零 rng，
+              │                storm-strike 事件先逐场 noteStorm(board)）
               └▶ updateStory(ctx) 剧情解锁与排队（§7.4；immutable，吃 day/建筑计数/elapsed）
                  └▶ world/fx.draw()  清屏 → 海面 → 木筏 → 实体 → 粒子
                       └▶ ui.hud()    资源/道具袋/请求板/剧情条目/预警（最后画，最上层）
@@ -267,8 +270,8 @@ maxHp，不能靠重建洗血。无建造耗时。`refund` / `scrapValue`（半�
 threats/entities/sim/index.ts 本轮无人有写权，已核实）。它们是自带
 状态的纯数据模块，模块本体已落地，本节与实现逐项核对——**实现即
 真相**。父调度器已把 bag/board/story 接进 session（直接按文件路径
-import，没动 `sim/index.ts` 的桶口）；两条接线（掉落/吃喝）留给
-Round 2，现状见 §7.5。
+import，没动 `sim/index.ts` 的桶口）；掉落线 Round 2 已接（§7.5.1），
+吃喝线 Round 3 收口（契约 §7.5.2）。
 
 三个模块共同满足的纪律（与 sim 一致，复核过）：纯数据 + 纯函数，
 不碰 DOM/Canvas/定时器；随机走传入的 `Rng`（同种子可复现）；只返回
@@ -393,45 +396,77 @@ hasUnlocked(state, id) / beatById(id)
 - 展示归 fable-sota：画 `state.beat` 的 title + body，kind 区分
   日记/电台样式。非模态，不暂停不弹窗。
 
-### 7.5 接线现状与剩余清单（session.ts 归父调度器）
+### 7.5 接线现状与吃喝线契约（session.ts 归父调度器）
 
-已落地（Round 1，核对过 session.ts）：
+已落地（Round 1–2，核对过 session.ts）：
 
 - Session 字段：`bag: Inventory`（createInventory，DEFAULT_SLOTS）、
-  `board: BoardState`（createBoard）、`story: StoryState`（createStory）。
+  `board: BoardState`（createBoard，**内含 milestones**，§7.7.2）、
+  `story: StoryState`（createStory）。
 - 帧序（§3）：updateEconomy / updateThreats 之后 →
-  `updateBoard(board, res, dt, rng)` → `story = updateStory(story,
-  { day, buildings 计数, elapsed })`。over 时整条链跳过
-  （board/story 不调用即冻结）。
+  `updateBoard(board, res, dt, rng)` → 威胁事件里的 `storm-strike`
+  逐场 `noteStorm(board)` → `updateMilestones(board, res, { day,
+  tiles, purifiers })` → `story = updateStory(story, { day,
+  buildings 计数, elapsed })`。over 时整条链跳过（不调用即冻结）。
 - 捞取入袋：tryScoop 成功后 `addItem(bag, haul.kind, n,
   { partial: true })`——捞到的建材**同步映射**进袋（同名 id 的设计
   用途），溢出丢弃。
 - 交单：键位 Q/E 选单交单走 `complete(board, res, id)`；HUD 显示
-  日记卡（story.beat 的 title/body）与当前条子（quest）。
+  日记卡（story.beat 的 title/body）与当前条子或下一个里程碑
+  （quest 胶囊）。
 
-留给 Round 2 的接线（另两条支线——海面外观与里程碑——见 §7.7）：
+#### 7.5.1 掉落线（Round 2 已接线，核对过 tryScoop）
 
-- **掉落线**（数在 constants.ITEM_DROP，接线即真相）：捞取成功后
-  掷 `rng() < chance`，或连续 `pityScoops` 次未中时强制命中；命中
-  从目录物（排除与资源同名的四种散料）抽一件
-  `addItem(bag, id, 1, { partial: true })` 并清零保底计数。
-  实现放 inventory 侧、session 只调用，正式签名：
+数在 constants.ITEM_DROP，实现在 sim/inventory.ts（`createItemPity` /
+`rollItemDrop`，§7.2）：捞取成功后 session 用 **session.rng** 掷
+`rollItemDrop(rng, pity)`——每次**恒消耗 2 次**抽取（命中判定 +
+加权选品），命中与否都一样，掉率怎么调都不挪 rng 序列的位置；保底
+`pity.misses` 由函数自己推进，session 持有该状态。命中后
+`addItem(bag, id, 1, { partial: true })`（袋满整件丢弃，保底不白攒）、
+飘字与图鉴走 markSeen。建材的 dropWeight 是 0，附带掉落只出杂货。
+探针磁带不含捞取动作，基线哈希不受影响。`look` 加权偏向（§7.7.1
+的可选参数）尚未接，接的话不许改变抽取次数。
 
-  ```ts
-  export type ItemPity = { misses: number };
-  export function createItemPity(): ItemPity;
-  export function rollItemDrop(rng: Rng, pity: ItemPity, look?: string): ItemId | null;
-  ```
+#### 7.5.2 吃喝线（Round 3 收口）——本轮唯一的新接线
 
-  约束：负责推进/清零 `pity.misses`；每次调用的 rng 抽取次数**恒定**
-  （命中与否都一样，建议恒 2 次：命中判定 + 选品），同种子同序列；
-  可选参数 `look` 是这次捞的外观 id（§7.7.1），实现可用它加权偏向
-  （穿油布外观的更容易掉油布），但不许因此改变抽取次数。池子权重是
-  opus-items 的设计空间（catalog 加字段或 inventory 本地表均可）。
-  session 持 `pity`，在 tryScoop 用 session.rng 掷——探针磁带不含
-  捞取动作，基线哈希不受影响。
-- **吃喝线**（汇率在 constants.ITEM_USE）：HUD 点袋子，id 在表里
-  → `removeItem(bag, id, 1)` 成功后按表 `gain(res, …)` 入库。
+汇率在 constants.ITEM_USE（kelp +4 食 / driedFish +8 食 /
+freshWater +8 水；配套零数值的 `UsableItemId` / `ITEM_USE_IDS` /
+`isUsableItem`）。分工：**opus-items 在 sim/inventory.ts 提供纯函数，
+父调度器在 session 两步接线，fable-sota 给 HUD 袋格点击区（或点击区
+矩形 API），opus-content 给庆祝短音**。正式签名：
+
+```ts
+// sim/inventory.ts（opus-items）——只动袋子，不碰 Resources
+export type UseItemResult =
+  | { ok: true; gain: Readonly<Partial<Record<ResourceId, number>>> } // = ITEM_USE[id]
+  | { ok: false; reason: "not-usable" | "not-in-bag" };
+export function useItem(inv: Inventory, id: ItemId): UseItemResult;
+```
+
+useItem 的行为（单测按这四条断言原子性）：
+
+1. `id` 不在 ITEM_USE（守卫走 `isUsableItem`）→ `not-usable`，
+   袋子分文不动——工具/珍品点了也只是「咬不动」。
+2. 袋里没有 → `not-in-bag`，分文不动（`removeItem(inv, id, 1)`
+   本来就是全或无，不传 partial）。
+3. 成功 = **恰好出袋 1 件**，返回 ITEM_USE[id] 的 gain 单；
+   **不动 Resources**（两本账纪律，§7.2）——入库是 session 的第二步。
+4. 零 rng、零 dt、不抛异常、无中间态；连点两下就是独立的两次调用。
+
+session 两步接线（父调度器；两步各自原子、先出袋后入库、永不倒扣）：
+
+- HUD 袋格点击（非模态、局内，GAME_SPEC §3）→ `useItem(bag, id)`；
+- `ok` 时逐项 `gain(res, k, n)` 入库，超 RESOURCE_CAP 的部分
+  **截断丢弃**——满仓吃是浪费，刻意不挡不退（HUD 可置灰满仓项做
+  提示，契约层不阻止）；
+- 提示走现有 loot / questDone 管道，庆祝短音钩子给 fx
+  （opus-content），不挡舞台；失败路径按 reason 给短句
+  （同 placeHint 的路数）。
+- 门禁归 session：`over` / 非 playing 不响应点击；吃喝是玩家操作，
+  不进 §3 帧序（同 complete）。
+
+探针安全：磁带无袋格点击，且整条线零 rng——snapshot 不扩字段，
+基线 `728b59b5` 稳。
 
 硬约束（Round 2 起生效）：`snapshot()` **冻结**——不加字段不改语义，
 探针哈希须保持 `728b59b5`；新系统状态走 HUD 与 `result()` 结算展示，
@@ -442,29 +477,29 @@ hasUnlocked(state, id) / beatById(id)
 
 | 表 | 类别 | 说明 |
 | --- | --- | --- |
-| `ITEM_DROP` | 接线时消费 | 捞取附带掉物品的 chance / pityScoops，接线即真相 |
-| `ITEM_USE` | 接线时消费 | 咸海带/鱼干/净水囊 → 资源的兑换率 |
+| `ITEM_DROP` | 接线时消费 | 捞取附带掉物品的 chance / pityScoops，Round 2 已接（§7.5.1） |
+| `ITEM_USE` | 接线时消费 | 咸海带/鱼干/净水囊 → 资源的兑换率（§7.5.2 吃喝线）；Round 3 配套 `UsableItemId` / `ITEM_USE_IDS` / `isUsableItem`，零新数 |
 | `INVENTORY` | 被运行时消费 | HUD 道具袋条一屏小格数（hudSlots，ui/hud.ts 吃） |
 | `BAG` | 文档镜像 | = inventory 的 DEFAULT_SLOTS（16 格） |
 | `BOARD` | 文档镜像 | = expand 的 BOARD 全表（逐键同名同值） |
-| `JUNK_LOOKS` | Round 2 真相 | 漂浮物穿目录外观的概率（§7.7.1，第四段） |
-| `MILESTONES` | Round 2 真相 | 四条里程碑的判定阈值 + id/顺序（§7.7.2，第四段） |
+| `JUNK_LOOKS` | Round 2 真相 | 漂浮物穿目录外观的概率（§7.7.1，第四段），junk.ts 直接 import |
+| `MILESTONES` | 文档镜像 | 真相随落地长进 expand.ts 目标链（自带 id/阈值/奖励/文案，§7.7.2）；镜像已对齐实现（id `storm-weathered`） |
 
-inventory / expand 本轮**刻意自带数值**（见各自文件头注释「等定型
-了再搬过去」）；收编（原件改为 import constants）待后续轮、归各
-属主，收编前改平衡改原件、同步镜像。ROUND2_BRIEF 第 4 条说的
-「expand.ts 改读 REQUESTS」即指收编到这里的 `BOARD` 镜像（表名以
-本文件为准），且收编后必须保持「开局 5 秒内不贴单、不抽 rng」
-（BOARD.firstS = 12 本来就满足）。内容表（物品/模板/条目）住各自
-模块不进 constants。既有两段（CANVAS/LOOP/…/SKIFF）本轮一个数
-没动，探针基线不受影响。
+inventory / expand **刻意自带数值**（DEFAULT_SLOTS、BOARD、里程碑
+目标链，见各自文件头注释「等定型了再搬过去」）；收编（原件改为
+import constants）待后续轮、归各属主，收编前改平衡改原件、同步
+镜像。收编后必须保持「开局 5 秒内不贴单、不抽 rng」（BOARD.firstS
+= 12 本来就满足）。内容表（物品/模板/条目/里程碑文案与奖励）住
+各自模块不进 constants。既有前两段（CANVAS/LOOP/…/SKIFF）Round 3
+一个数没动，探针基线不受影响。
 
-### 7.7 Round 2 支线契约（海面外观 / 里程碑）
+### 7.7 Round 2 支线契约（海面外观 / 里程碑，均已落地）
 
-与 §7.5 的掉落线/吃喝线并列的另两条支线，数值新表在 constants
-第四段（JUNK_LOOKS / MILESTONES，出生即唯一真源、直接 import）。
-共同原则：**不开新经济、不开新场景、不扩 snapshot**——都是在
-Round 1 已有的管道上开支线。
+与 §7.5 的掉落线/吃喝线并列的另两条支线。数值表命运分岔（Round 3
+核对）：`JUNK_LOOKS` 在 constants 第四段、junk.ts 直接 import，是
+真相；`MILESTONES` 随落地长进 expand.ts 目标链，constants 的同名表
+降级为镜像（§7.6）。共同原则：**不开新经济、不开新场景、不扩
+snapshot**——都是在 Round 1 已有的管道上开支线。
 
 #### 7.7.1 海面刷目录物（opus-content：world/junk.ts + world/items.ts）
 
@@ -485,48 +520,59 @@ Round 1 已有的管道上开支线。
   表现（「捞到 空油桶」而不是「捞到 金属」），§7.5 掉落线的
   `rollItemDrop(rng, pity, look)` 也拿它做偏向。
 
-#### 7.7.2 里程碑旁路（opus-play：sim/expand.ts）
+#### 7.7.2 里程碑目标链（opus-play：sim/expand.ts，已落地并接线）
 
-判定阈值在 `constants.MILESTONES`（四条：首座净水机 / 撑过首场
-风暴 / 木筏 ≥ 12 格 / 活到第 3 天）；expand.ts 长出一条与请求板
-并列的旁路，**要有可测状态，不是只写文案**：
+Round 2 已长成并接进 session；落地形态与当初契约有三处出入，按
+「实现即真相」以下述为准（constants.MILESTONES 随之降级为镜像，
+§7.6）：
+
+- **状态并进 BoardState**：`board.milestones: MilestoneState =
+  { done, at, best, storms }`——createBoard 一并创建、resetBoard
+  就地清（HUD 可能正抓着引用）。没有独立的接线点。
+- **id 定名 `storm-weathered`**（旧契约草案的 first-storm 未采用）。
+  四条 id/阈值：first-purifier ≥1、storm-weathered ≥1、raft-12 ≥12、
+  day-3 ≥3。id 是存档/结算的稳定键，落地后别再动。
+- **奖励在函数内结算**：达成即 `gainAll(res, m.reward)` 入库
+  （超上限截断、从不失败），事件带实收 `got`——比旧契约的
+  「session 拿事件走 gain」少一步；原子性与零 rng 不变。
 
 ```ts
-export type MilestoneCtx = {
-  purifiers: number;       // countBuilding(raft, "purifier")
-  stormsSurvived: number;  // threats.storm.count（已结算场数；局未结束即算撑过）
-  tiles: number;           // raft.cells.size
-  day: number;             // session.day
-};
-export type MilestoneState = { done: MilestoneId[] };  // 按达成顺序，可序列化可断言
-export type MilestoneEvent = { type: "milestone"; id: MilestoneId;
-                               title: string; note: string };
-export function createMilestones(): MilestoneState;
-/** 逐条查 MILESTONES：ctx[stat] >= goal 且未达成 → 记入 done 并返回事件。
- *  纯阈值、零 rng；同帧多条达成按 MILESTONE_IDS 顺序全部返回。 */
-export function updateMilestones(state: MilestoneState, ctx: MilestoneCtx): MilestoneEvent[];
+export type MilestoneTrack = "purifiers" | "storms" | "tiles" | "day";
+export type MilestoneFacts = { day?; tiles?; purifiers?; storms? }; // 缺项按 0（= 还没达成）
+export type MilestoneState = { done: MilestoneId[]; at; best; storms };
+export function noteStorm(state: BoardState, n?: number): void;  // storm-strike 事件时喂
+/** 各轨道 best 只涨不跌 → 逐条查表序结算，事件 { type: "milestone-done", milestone, got }。
+ *  不吃 dt、不抽 rng、不碰板上条子；一帧调几次都一样（done 去重）。 */
+export function updateMilestones(state: BoardState, res: Resources,
+  facts?: MilestoneFacts): BoardEvent[];
+// HUD / 结算的只读派生
+export function milestoneProgress(state, facts?): MilestoneProgress[];
+export function nextMilestone(state, facts?): MilestoneProgress | null; // 挂「当前目标」
+export function milestoneDone(state, id): boolean;
+export function milestoneSummary(state): MilestoneSummary; // { done, total, ratio, latest }
 ```
 
-- 每条一生一次（done 去重保序）；title/note 文案住 expand.ts；
-  若配奖励，`updateMilestones` **不动账本**——session 拿事件走
-  gain / addItem，函数保持纯。
-- 可测：单测/探针可直接断言 `state.done`（如 headless 铺到 12 格后
-  done 含 `"raft-12"`）。顺手可把达成写进 board.diary
-  （tone: "good"），请求板日记免费获得展示。
-- 接线（父调度器）：帧序排在 updateBoard 之后（§3）；
-  `milestones.done.length` 可进 `result()` 增量字段；庆祝表现归
-  fable-sota——HUD 已有 quest 胶囊 / questDone 庆祝 / toast 管道，
-  不传新字段则画面与现状一致。
+- `best` 每轨只涨不跌：拆了净水机、风暴啃回格数都不会撤销已达成，
+  也不会重复发奖；同帧多条按表序结算，事件顺序可复现。达成顺手写
+  board.diary（tone: "good"），请求板日记免费获得展示。
+- 接线（已核对 session.ts）：帧序在 updateBoard 之后（§3）；
+  storm-strike 事件逐场 noteStorm；facts 传 { day, tiles,
+  purifiers }。达成走 questDone 庆祝管道（milestone-done 事件），
+  板上没条子时 `nextMilestone` 挂 HUD「当前目标」。
+- 可测：单测直接断言 `board.milestones.done`（如 headless 铺到
+  12 格后 done 含 `"raft-12"`）；同条不重复达成。
 - 探针安全（三重）：判定零 rng；探针窗口内（第 1 天、至多 11 格、
   零净水机、零风暴）一条不触发；里程碑不进 snapshot()。
 
 ## 8. 未决事项（交给后续轮）
 
-- **四条支线待 Round 2 接完**：ITEM_DROP 掉落线与 ITEM_USE 吃喝线
-  （§7.5）、海面外观线与里程碑线（§7.7）；接完 GAME_SPEC §9 的
-  新验收条目才可全绿。
-- BAG / BOARD 的收编（inventory / expand 原件改为 import constants）
-  待后续轮，归各属主；收编前 constants 里是镜像。
+- **吃喝线本轮（Round 3）收口**：四条支线已接三条（掉落 §7.5.1、
+  海面外观与里程碑 §7.7），只剩 ITEM_USE 吃喝线——契约 §7.5.2
+  （inventory 出 `useItem`，session 两步接线，HUD 袋格可点，庆祝
+  短音进 fx）；接完 GAME_SPEC §9 的新验收条目才可全绿。
+- BAG / BOARD / MILESTONES 的收编（inventory / expand 原件改为
+  import constants）待后续轮，归各属主；收编前 constants 里是镜像
+  （MILESTONES 镜像 Round 3 已对齐实现的 id/轨道）。
 - 道具袋与请求板暂不相通：条子只收资源账本里的建材，「收袋装物品
   的条子」和工具类物品（扳手/鱼钩/急救包）的机械效果是后续议题。
 - 局中进度存档（库存/格子/威胁计时/袋子/板面）仍未做；save.ts 目前
