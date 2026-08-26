@@ -1,0 +1,102 @@
+:root {
+  --bg: #042833;
+  --panel: rgba(4, 28, 40, 0.78);
+  --ink: #f4fffd;
+  --accent: #2ee6d6;
+  --hot: #ff5dab;
+  --sun: #ffd166;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html,
+body,
+#app {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: radial-gradient(circle at 50% 20%, #0a5c6e 0%, #042833 70%);
+  font-family: "Trebuchet MS", "PingFang SC", "Microsoft YaHei", sans-serif;
+  color: var(--ink);
+  user-select: none;
+  touch-action: none;
+}
+
+#app {
+  display: grid;
+  place-items: center;
+}
+
+#game {
+  width: min(100vw, calc(100vh * 16 / 9));
+  height: min(100vh, calc(100vw * 9 / 16));
+  display: block;
+  border-radius: 12px;
+  box-shadow: 0 20px 80px rgba(0, 0, 0, 0.45);
+  background: #01313d;
+}
+
+.overlay {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+}
+
+.overlay .panel {
+  pointer-events: auto;
+  width: min(520px, 92vw);
+  padding: 28px 32px 24px;
+  border-radius: 20px;
+  background: var(--panel);
+  border: 1px solid rgba(46, 230, 214, 0.35);
+  box-shadow: 0 16px 60px rgba(0, 20, 30, 0.45);
+  text-align: center;
+  backdrop-filter: blur(10px);
+}
+
+.overlay h1 {
+  font-size: clamp(32px, 6vw, 52px);
+  letter-spacing: 0.08em;
+  color: var(--accent);
+  text-shadow: 0 4px 0 #01545a, 0 0 24px rgba(46, 230, 214, 0.55);
+}
+
+.overlay .tag {
+  margin: 8px 0 18px;
+  color: var(--sun);
+  font-size: 14px;
+}
+
+.overlay p {
+  line-height: 1.6;
+  opacity: 0.92;
+  margin-bottom: 10px;
+}
+
+.overlay button {
+  margin: 8px 6px 0;
+  padding: 10px 22px;
+  border: 0;
+  border-radius: 999px;
+  background: linear-gradient(180deg, #5ff5e8, #1ec4b6);
+  color: #04343a;
+  font-weight: 800;
+  font-size: 16px;
+  cursor: pointer;
+}
+
+.overlay button.ghost {
+  background: transparent;
+  color: var(--ink);
+  border: 1px solid rgba(255, 255, 255, 0.25);
+}
+
+.hud-hidden {
+  display: none !important;
+}
