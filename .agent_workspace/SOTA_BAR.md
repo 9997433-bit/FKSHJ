@@ -1,4 +1,4 @@
-# SOTA 基准线 — 视觉 / HUD / 菜单 / 手感（Round 3 · fable-sota · 海上末日重开）
+# SOTA 基准线 — 视觉 / HUD / 菜单 / 手感（Round 5 · fable-sota · 海上末日重开）
 
 > 目的：定义「2026 年的海上末日拾荒建造网页游戏」应该达到的体验底线。
 > 基调一句话：**手游浮岛基建的轻松感——末世但不丧**。天塌了海涨了，
@@ -170,6 +170,51 @@ session 已把 storm01 / starve01 / hintDanger 全部接上（src/session.ts dra
   拾取提示单条不堆叠，连续捞多种材料只显示最新一条。节奏由 session 控。
 - 岛民请求胶囊里只有小旗没有头像/表情，与 P2「岛民表情」一起做。
 
+## 2.8 Round 5 增量（fable-sota · 新波次 R2：道具袋条 + 任务完成庆祝）
+
+上一轮立的「叮 + 领奖差半步」这回补上：任务完成有勾章有彩纸了；道具袋
+（sim/inventory 已在 session 里入账）也有了自己的 HUD 条。两个都是全可选
+字段，**session 未传时逐指令一致**（已用记录型 stub ctx 探针验证：传过新
+字段之后再画基线，708 条 ctx 指令逐条相同，无状态泄漏）。
+
+**本轮加了什么（hud.ts；menus / css 未动一字）：**
+
+- `HudInfo.bagSlots?: { used; max; items?: [{ id?; name; count }] }` +
+  新导出 `drawBagStrip(ctx, info)`（drawHud 内建造栏之后画；也可单独调用）：
+  - 左列第三卡，固定 y 192–266（拾取提示槽位 154–184 之下、日记卡上浮
+    上限 ~586 之上），宽 266 < 资源卡 398，中央舞台零遮挡。
+  - 头行：程序化布袋图标 +「道具袋」+ `used/max`；袋满（used ≥ max）时
+    图标与数字染珊瑚色柔和呼吸并加「满」字——「捞了也装不下」提前看到。
+  - 下排固定 `INVENTORY.hudSlots`(6) 个 36px 小格：**物品剪影直接复用
+    world/items 的登记表**（itemArt；id 缺省按 name 散列成「未知包裹」，
+    同名恒同色不崩不空白），格内 clip 不外溢，time 传 0 保持静物感；
+    ×数量角标压右下（×1 不画）；某件数量增加的那一格弹跳（资源 pop
+    同曲线；首帧接线不齐弹，出袋再进袋按新货重新弹）。空格画淡色底座，
+    items 超过 6 件只画前 6 件（总况看头行数字）。
+- `HudInfo.questDone?: { name; reward? }`（画在 drawStoryLayer 内）：
+  - 完成庆祝胶囊：潟湖青**勾章** + 任务名 +「完成！」+ 可选暖阳奖励行
+    （如「+食×12」）；出现瞬间弹跳 + 0.25s 淡入。
+  - 勾章放出一圈潟湖青扩散环 + **10 粒彩纸**（0.9s 一次性；i 索引定
+    角度定色、轻微下坠，零 RNG 帧帧可复现）；彩纸活动半径 ≤ 34px，
+    全程贴右缘带（x ≥ ~990），不进中央舞台。
+  - 位置：任务胶囊下方 y 178（quest 同帧还在时），quest 已撤则占其
+    原位 y 124——两种时序都不重叠。name 变化会重新庆祝；显示 1.5–2.5
+    秒后撤掉由 session 掌握。reduced-motion 下瞬现、无环无彩纸。
+- 两个新字段的入场时间戳与袋内计数表全进 `resetHud` + day 回退自愈；
+  `drawStoryLayer` 的空门槛扩成四字段全缺省才早退。旧 13 测仍绿、
+  `tsc / vite build / smoke` 全绿、探针哈希仍 `728b59b5`。
+
+**还缺什么（给下轮 / 父调度器）：**
+
+- **接线全欠**（见 §5 新增两段）：bagSlots 是现成状态直接折算；questDone
+  要 session 在 `updateBoard`/`complete` 的 `request-done` 事件处存
+  `{ name, reward, at }` 传 ~2 秒。
+- 袋子溢出提示（addItem 的 overflow > 0 时「袋子装不下了」toast）没做，
+  数据在 AddResult 里现成。
+- 小格没有悬停 tooltip（catalog 的 desc 用不上）；图鉴 / 收集进度界面未动。
+- 庆祝没有配套音效钩子（sfx 归 opus-content；session 完成瞬间自己放
+  sfx.scoop 已经够用）。
+
 ## 3. 本轮必做（fable-sota 写集：SOTA_BAR / src/ui/** / index.css）
 
 - [x] **P0 `src/ui/menus.ts`**：title / paused / gameover 三面板，中文；标题「疯狂水世界」+
@@ -246,6 +291,21 @@ drawHud(ctx, {
     this.beat && this.time - this.beat.at < 8
       ? { title: "无线电 · 第 3 天", body: "北边渔场的老赵说，最近漂来的木箱成色不错，手快有手慢无。" }
       : undefined,
+  // ---- Round 5 新增（可选；不传不画，逐指令与 Round 4 一致）----
+  // 道具袋条：全部现成状态（import { usedSlots, listItems } from "./sim/inventory";
+  // import { itemName } from "./data/catalog";）。id 一定要带上，HUD 用它配剪影。
+  bagSlots: {
+    used: usedSlots(this.bag),
+    max: this.bag.maxSlots,
+    items: listItems(this.bag).map((s) => ({ id: s.id, name: itemName(s.id), count: s.count })),
+  },
+  // 任务完成庆祝：updateBoard / complete 返回 request-done 事件时存
+  //   this.questDone = { name: ev.request.title, reward: `+${requestCost(ev.got)}`, at: this.time };
+  //（ev.got 是真正入库的量，仓库满了会少于 reward——报给玩家的数别虚。）
+  questDone:
+    this.questDone && this.time - this.questDone.at < 2
+      ? { name: this.questDone.name, reward: this.questDone.reward }
+      : undefined,
 });
 // HUD 的饿态阈值 >0.4 与 economy 的 STARVE.warnAt = 0.4 对齐，无需换算。
 // placeHint 的文案用 sim/rules 现成的 placeHint(reason)，撤掉时机由 session 掌握
@@ -273,8 +333,10 @@ renderOverlay(overlay, "gameover", {
   `drawDayBadge(ctx, info)`、`drawBuildBar(ctx, info)`、
   `drawAlerts(ctx, info)`（Round 2：storm01 / hintDanger 预警层；
   Round 3：`HudInfo.placeHint?` 放置被拒短句，画在建造栏提示行）、
-  `drawStoryLayer(ctx, info)`（Round 4：`storyBeat?` / `quest?` / `lootToast?`
-  剧情层三件，三字段都缺省时不触碰 ctx）。
+  `drawStoryLayer(ctx, info)`（Round 4：`storyBeat?` / `quest?` / `lootToast?`；
+  Round 5 追加 `questDone?` 完成庆祝，四字段都缺省时不触碰 ctx）、
+  `drawBagStrip(ctx, info)`（Round 5：`bagSlots?` 道具袋条，缺省时
+  不触碰 ctx）。
 - `gameoverCopy` 纯函数可直接断言；hud/menus 模块 import 无副作用（Node 安全）。
 
 ## 6. 验收 rubric（Round 1 结束时逐项打勾）

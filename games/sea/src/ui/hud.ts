@@ -1,7 +1,8 @@
-import { CANVAS } from "../data/constants";
+import { CANVAS, INVENTORY } from "../data/constants";
+import { SILHOUETTES, itemArt } from "../world/items";
 
 /**
- * HUD 绘制 API（fable-sota，Round 4）。
+ * HUD 绘制 API（fable-sota，Round 5）。
  *
  * 设计基调：手游浮岛基建的轻松感——末世但不丧。圆角卡片、暖阳黄点缀、
  * 资源 +1 弹跳、换天徽章闪光；绝不用血红大警报吓玩家（危险态只做柔和脉冲）。
@@ -12,14 +13,17 @@ import { CANVAS } from "../data/constants";
  *   可选，缺哪块就不画哪块，父调度器可以分阶段接线。
  *   Round 2 新增 storm01 / starve01 / hintDanger 三个可选预警字段，
  *   Round 3 新增 placeHint（放置被拒短句），
- *   Round 4 新增 storyBeat / quest / lootToast（轻剧情 / 岛民请求 / 拾取提示）：
+ *   Round 4 新增 storyBeat / quest / lootToast（轻剧情 / 岛民请求 / 拾取提示），
+ *   Round 5（新波次 R2）新增 bagSlots / questDone（道具袋条 / 任务完成庆祝）：
  *   session 还没传时行为与上一轮**逐像素一致**，不崩不闪。
  * - 布局红线：资源/生存条贴左上，天数贴右上，建造栏贴底部中央；
  *   预警层贴顶缘（y < 96，浮岛网格上沿之上）；剧情层贴左右两列与左下角
- *   （拾取提示接生存条下、任务胶囊接岛民胶囊下、日记卡压左下角）——
+ *   （拾取提示接生存条下、任务胶囊接岛民胶囊下、日记卡压左下角）；
+ *   道具袋条贴左列（拾取提示槽位之下）、任务完成庆祝贴右列——
  *   画面中央（浮岛与小船的舞台）永不遮挡。
  * - 模块在 Node 可安全 import（单测环境无 matchMedia/DOM，已守卫；
- *   文本宽度全部走 estTextWidth 估算，stub ctx 没有 measureText 也安全）。
+ *   文本宽度全部走 estTextWidth 估算，stub ctx 没有 measureText 也安全；
+ *   world/items 是纯数据 + 纯函数，import 无副作用之外的要求）。
  */
 
 /** 四种拾荒材料（GAME_SPEC §2；键名与 constants.ResourceId 的建材子集对齐）。 */
@@ -108,6 +112,32 @@ export type HudInfo = {
    * 累计上去——name×qty 组合变化就会重新弹跳。
    */
   lootToast?: { name: string; qty: number };
+  /**
+   * 道具袋条（Round 5）：左列拾取提示槽位之下（y 192 起）的物品栏卡。
+   * 头行 = 布袋图标 +「道具袋」+ 已占/总格数（袋满时染珊瑚色柔和呼吸）；
+   * 下排固定 INVENTORY.hudSlots(6) 个小格：物品剪影（world/items 的
+   * itemArt 登记表；id 缺省按 name 散列成一件「未知包裹」，不崩不空白）
+   * + ×数量角标；某件数量增加的瞬间那一格弹跳（资源 pop 同曲线），
+   * 空格画淡色底座。items 超过 6 件只画前 6 件（袋子总况看头行数字）。
+   * 缺省不画，逐像素与 Round 4 一致。
+   */
+  bagSlots?: {
+    /** 已占格数（sim/inventory 的 usedSlots） */
+    used: number;
+    /** 总格数（Inventory.maxSlots） */
+    max: number;
+    /** 袋内物品（建议 listItems 的 catalog 顺序）；id 用来配剪影 */
+    items?: Array<{ id?: string; name: string; count: number }>;
+  };
+  /**
+   * 任务完成庆祝（Round 5）：右列任务胶囊下方（quest 不在时占其原位）
+   * 的庆祝胶囊——潟湖青勾章 + 任务名 +「完成！」+ 可选奖励行（暖阳色，
+   * 如「+食×12」）。出现瞬间弹跳 + 0.25s 淡入，并从勾章放出一圈扩散环
+   * 和一小把彩纸（0.9s 一次性，轨迹确定性零 RNG；reduced-motion 下
+   * 瞬现、无彩纸）。全部贴右缘，中央舞台零遮挡。缺省不画。
+   * 显示 1.5–2.5 秒后撤掉由 session 掌握；name 变化会重新庆祝。
+   */
+  questDone?: { name: string; reward?: string };
 };
 
 /** HUD 专用色板：暖阳 + 潟湖青，危险色也偏珊瑚而非血红（末世但不丧）。 */
@@ -158,6 +188,11 @@ let lastQuestProgress = "";
 let questProgressAt = -Infinity;
 let lastLootKey = "";
 let lootAt = -Infinity;
+let lastQuestDone = "";
+let questDoneAt = -Infinity;
+let bagSeen = false;
+let lastBagCounts = new Map<string, number>();
+let bagPopAt = new Map<string, number>();
 
 /** 清空 HUD 动画状态。新一局开始时调用，避免上一局尾帧的弹跳串进新局。幂等。 */
 export function resetHud(): void {
@@ -177,6 +212,11 @@ export function resetHud(): void {
   questProgressAt = -Infinity;
   lastLootKey = "";
   lootAt = -Infinity;
+  lastQuestDone = "";
+  questDoneAt = -Infinity;
+  bagSeen = false;
+  lastBagCounts = new Map();
+  bagPopAt = new Map();
 }
 
 /**
@@ -207,6 +247,26 @@ function syncHudState(info: HudInfo, now: number): void {
   const loot = info.lootToast ? `${info.lootToast.name}×${info.lootToast.qty}` : "";
   if (loot && loot !== lastLootKey) lootAt = now;
   lastLootKey = loot;
+  const done = info.questDone?.name ?? "";
+  if (done && done !== lastQuestDone) questDoneAt = now;
+  lastQuestDone = done;
+  if (info.bagSlots?.items) {
+    // 首次见到袋子那一帧不弹（接线瞬间整排齐弹很吵）；之后新物品视为从 0 涨
+    const alive = new Set<string>();
+    for (const it of info.bagSlots.items) {
+      alive.add(it.name);
+      const prev = lastBagCounts.get(it.name) ?? (bagSeen ? 0 : undefined);
+      if (prev !== undefined && it.count > prev) bagPopAt.set(it.name, now);
+      lastBagCounts.set(it.name, it.count);
+    }
+    for (const name of [...lastBagCounts.keys()]) {
+      if (!alive.has(name)) {
+        lastBagCounts.delete(name); // 出袋即忘：同名再进袋按新货重新弹
+        bagPopAt.delete(name);
+      }
+    }
+    bagSeen = true;
+  }
   if (!info.resources) return;
   for (const kind of RESOURCE_ORDER) {
     const v = info.resources[kind];
@@ -224,7 +284,7 @@ function popScale(at: number | undefined, now: number): number {
   return 1 + 0.4 * (1 - t) * (1 - t);
 }
 
-/** 一次画全 HUD：预警层 + 资源条 + 天数徽章 + 建造快捷栏 + 剧情层。session 每帧调用这个即可。 */
+/** 一次画全 HUD：预警层 + 资源条 + 天数徽章 + 建造快捷栏 + 道具袋条 + 剧情层。session 每帧调用这个即可。 */
 export function drawHud(ctx: CanvasRenderingContext2D, info: HudInfo): void {
   const now = info.time ?? performance.now() / 1000;
   syncHudState(info, now);
@@ -233,7 +293,8 @@ export function drawHud(ctx: CanvasRenderingContext2D, info: HudInfo): void {
   drawResourceBar(ctx, info);
   drawDayBadge(ctx, info);
   drawBuildBar(ctx, info);
-  drawStoryLayer(ctx, info); // 最后画：日记卡/任务胶囊/拾取提示叠在各面板之上
+  drawBagStrip(ctx, info); // 道具袋条：bagSlots 缺省时不触碰 ctx
+  drawStoryLayer(ctx, info); // 最后画：日记卡/任务胶囊/拾取提示/完成庆祝叠在各面板之上
   ctx.restore();
 }
 
@@ -585,20 +646,113 @@ export function drawBuildBar(ctx: CanvasRenderingContext2D, info: HudInfo): void
 }
 
 /**
- * 剧情层（Round 4；三个字段都没接线时不画任何东西，逐像素与 Round 3 一致）：
+ * 左列第三卡：道具袋条（Round 5；bagSlots 缺省时不触碰 ctx，逐像素一致）。
+ * 固定 y 192 起——拾取提示槽位（154–184）之下、左下日记卡上浮上限（~586）
+ * 之上，左列三卡与建造栏互不相撞，中央舞台零遮挡。
+ * - 头行：布袋图标 +「道具袋」+ `used/max`；袋满时图标与数字染珊瑚色
+ *   柔和呼吸（reduced-motion 下恒定）——「捞了也装不下」提前一眼看到。
+ * - 下排固定 INVENTORY.hudSlots 个 36px 小格：物品剪影复用 world/items
+ *   的登记表（id 缺省按 name 散列出「未知包裹」，同名恒同色），格内裁切
+ *   不外溢；×数量角标压右下；数量增加的那一格弹跳（资源 pop 同曲线）。
+ *   空格画淡色底座，items 超出只画前 6 件。
+ */
+export function drawBagStrip(ctx: CanvasRenderingContext2D, info: HudInfo): void {
+  const now = info.time ?? performance.now() / 1000;
+  syncHudState(info, now);
+  const bag = info.bagSlots;
+  if (!bag) return;
+  const FONT = "'Trebuchet MS', 'PingFang SC', 'Microsoft YaHei', sans-serif";
+  const slotN = INVENTORY.hudSlots;
+  const cell = 36;
+  const gap = 6;
+  const pad = 10;
+  const x0 = 16;
+  const y0 = 192;
+  const w = pad * 2 + slotN * cell + (slotN - 1) * gap;
+  const h = 28 + cell + pad;
+  ctx.save();
+  panel(ctx, x0, y0, w, h);
+
+  // 头行：布袋 + 名 + 已占/总格数
+  const used = Math.max(0, Math.floor(bag.used));
+  const max = Math.max(0, Math.floor(bag.max));
+  const full = max > 0 && used >= max;
+  const pulse = full && !REDUCED_MOTION ? 0.75 + 0.25 * Math.sin(now * 4) : 1;
+  ctx.globalAlpha = pulse;
+  drawPouchIcon(ctx, x0 + pad + 7, y0 + 15, full ? HUD_COLORS.danger : HUD_COLORS.rope);
+  ctx.globalAlpha = 1;
+  ctx.fillStyle = withAlpha(HUD_COLORS.ink, 0.6);
+  ctx.font = `700 12px ${FONT}`;
+  ctx.textAlign = "left";
+  ctx.fillText("道具袋", x0 + pad + 19, y0 + 19);
+  ctx.globalAlpha = pulse;
+  ctx.fillStyle = full ? HUD_COLORS.danger : withAlpha(HUD_COLORS.ink, 0.55);
+  ctx.textAlign = "right";
+  ctx.fillText(`${used}/${max}${full ? " 满" : ""}`, x0 + w - pad, y0 + 19);
+  ctx.globalAlpha = 1;
+
+  // 小格排：先底座，再剪影 + 数量角标（整格一起弹）
+  const items = bag.items ?? [];
+  const sy = y0 + 26;
+  for (let i = 0; i < slotN; i++) {
+    const sx = x0 + pad + i * (cell + gap);
+    const it = items[i];
+    ctx.fillStyle = withAlpha(HUD_COLORS.ink, it ? 0.12 : 0.05);
+    roundRect(ctx, sx, sy, cell, cell, 8);
+    ctx.fill();
+    ctx.strokeStyle = withAlpha(HUD_COLORS.ink, 0.1);
+    ctx.lineWidth = 1;
+    roundRect(ctx, sx, sy, cell, cell, 8);
+    ctx.stroke();
+    if (!it) continue;
+    const art = itemArt(it.id ?? it.name);
+    const scale = popScale(bagPopAt.get(it.name), now);
+    ctx.save();
+    roundRect(ctx, sx, sy, cell, cell, 8);
+    ctx.clip(); // 剪影与角标都不许溢出格子（pop 放大时也被裁住）
+    ctx.translate(sx + cell / 2, sy + cell / 2);
+    ctx.scale(scale, scale);
+    // time 传 0：袋子里的东西是静物，摇摆留给海面
+    (art.draw ?? SILHOUETTES[art.shape])(ctx, 11, { tint: art.tint, dark: art.dark, accent: art.accent }, 0);
+    const qty = Math.max(1, Math.floor(it.count));
+    if (qty > 1) {
+      const label = `×${qty}`;
+      const lw = estTextWidth(label, 10);
+      ctx.fillStyle = "rgba(4, 26, 36, 0.78)";
+      roundRect(ctx, cell / 2 - lw - 9, cell / 2 - 14, lw + 9, 14, 5);
+      ctx.fill();
+      ctx.fillStyle = HUD_COLORS.sun;
+      ctx.font = `700 10px ${FONT}`;
+      ctx.textAlign = "right";
+      ctx.fillText(label, cell / 2 - 4, cell / 2 - 4);
+    }
+    ctx.restore();
+  }
+
+  ctx.restore();
+}
+
+/**
+ * 剧情层（Round 4；Round 5 追加 questDone 完成庆祝。四个字段都没接线时
+ * 不画任何东西，逐像素与 Round 3 一致）：
  * - lootToast：左上生存条正下方小胶囊（暖阳四角星 + 名称 + ×数量），
  *   出现瞬间弹跳（资源 pop 同曲线）+ 0.2s 淡入。
  * - quest：右上岛民胶囊下方任务胶囊（潟湖青小旗 + 任务名 + 进度行）；
  *   新任务整胶囊淡入，进度变化瞬间进度行轻弹——「有进展」的确认感。
  * - storyBeat：左下角日记/广播卡（电波图标 + 暖阳标题 + 正文 ≤3 行自动换行），
  *   节拍变化时淡入上浮 0.35s。卡宽 288 < 建造栏左缘 325，互不相撞。
- * 三块全部贴边（左列 154–184 / 右列 124–170 / 左下角压底），中央舞台零遮挡；
+ * - questDone（Round 5）：完成庆祝胶囊——潟湖青勾章 + 任务名 +「完成！」+
+ *   可选暖阳奖励行；出现瞬间弹跳 + 0.25s 淡入 + 勾章放出扩散环与一小把
+ *   彩纸（0.9s 一次性，i 索引定角度定色，零 RNG 可复现）。画在任务胶囊
+ *   下方 y 178（quest 不在时占其原位 y 124），彩纸活动半径 ≤34px，
+ *   全程贴右缘带（x ≥ ~990）。reduced-motion 下瞬现、无环无彩纸。
+ * 各块全部贴边（左列 154–184 / 右列 124–224 / 左下角压底），中央舞台零遮挡；
  * reduced-motion 下全部瞬现、无弹跳。文本宽度全走 estTextWidth，超长自动省略号。
  */
 export function drawStoryLayer(ctx: CanvasRenderingContext2D, info: HudInfo): void {
   const now = info.time ?? performance.now() / 1000;
   syncHudState(info, now);
-  if (!info.storyBeat && !info.quest && !info.lootToast) return;
+  if (!info.storyBeat && !info.quest && !info.lootToast && !info.questDone) return;
   const FONT = "'Trebuchet MS', 'PingFang SC', 'Microsoft YaHei', sans-serif";
   ctx.save();
 
@@ -650,6 +804,84 @@ export function drawStoryLayer(ctx: CanvasRenderingContext2D, info: HudInfo): vo
     ctx.font = `700 12px ${FONT}`;
     ctx.fillText(progress, 0, 0);
     ctx.restore();
+  }
+
+  // 任务完成庆祝：任务胶囊之下（quest 不在时占其原位），贴右缘
+  if (info.questDone) {
+    const name = wrapText(info.questDone.name, 13, 150, 1)[0] ?? "";
+    const doneTag = " 完成！";
+    const reward = info.questDone.reward
+      ? (wrapText(info.questDone.reward, 12, 190, 1)[0] ?? "")
+      : "";
+    const line1W = estTextWidth(name, 13) + estTextWidth(doneTag, 13);
+    const w = Math.max(132, 44 + Math.max(line1W, estTextWidth(reward, 12)));
+    const h = reward ? 46 : 32;
+    const x0 = CANVAS.w - 16 - w;
+    const y0 = info.quest ? 178 : 124;
+    const fadeIn = REDUCED_MOTION ? 1 : Math.max(0, Math.min(1, (now - questDoneAt) / 0.25));
+    const scale = REDUCED_MOTION ? 1 : popScale(questDoneAt, now);
+    const ckx = -w / 2 + 18;
+    const cky = reward ? -h / 2 + 16 : 0;
+    ctx.save();
+    ctx.globalAlpha = fadeIn;
+    ctx.translate(x0 + w / 2, y0 + h / 2);
+    ctx.scale(scale, scale);
+    panel(ctx, -w / 2, -h / 2, w, h);
+    // 勾章：潟湖青圆底 + 面板深色勾（危险色一律不进庆祝）
+    ctx.fillStyle = HUD_COLORS.accent;
+    ctx.beginPath();
+    ctx.arc(ckx, cky, 8, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = "#07242f";
+    ctx.lineWidth = 2.2;
+    ctx.lineCap = "round";
+    ctx.beginPath();
+    ctx.moveTo(ckx - 3.6, cky + 0.2);
+    ctx.lineTo(ckx - 1, cky + 3);
+    ctx.lineTo(ckx + 4, cky - 3.2);
+    ctx.stroke();
+    ctx.textAlign = "left";
+    ctx.fillStyle = HUD_COLORS.ink;
+    ctx.font = `700 13px ${FONT}`;
+    ctx.fillText(name, ckx + 14, cky + 5);
+    ctx.fillStyle = HUD_COLORS.accent;
+    ctx.fillText(doneTag, ckx + 14 + estTextWidth(name, 13), cky + 5);
+    if (reward) {
+      ctx.fillStyle = HUD_COLORS.sun;
+      ctx.font = `700 12px ${FONT}`;
+      ctx.fillText(reward, ckx + 14, cky + 22);
+    }
+    ctx.restore();
+
+    // 扩散环 + 彩纸：从勾章放出，0.9s 一次性；i 索引定角度定色，零 RNG
+    const t = (now - questDoneAt) / 0.9;
+    if (!REDUCED_MOTION && t >= 0 && t < 1) {
+      const ease = 1 - (1 - t) * (1 - t);
+      const cx = x0 + 18;
+      const cy = y0 + (reward ? 16 : h / 2);
+      ctx.save();
+      ctx.globalAlpha = (1 - t) * 0.5;
+      ctx.strokeStyle = HUD_COLORS.accent;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(cx, cy, 8 + ease * 16, 0, Math.PI * 2);
+      ctx.stroke();
+      const confetti = [HUD_COLORS.sun, HUD_COLORS.accent, HUD_COLORS.food, HUD_COLORS.danger];
+      for (let i = 0; i < 10; i++) {
+        const ang = (i / 10) * Math.PI * 2 + 0.45;
+        const dist = ease * (16 + (i % 3) * 7);
+        const px = cx + Math.cos(ang) * dist;
+        const py = cy + Math.sin(ang) * dist * 0.8 + ease * ease * 9; // 轻微下坠
+        ctx.globalAlpha = 1 - t;
+        ctx.fillStyle = confetti[i % confetti.length];
+        ctx.save();
+        ctx.translate(px, py);
+        ctx.rotate(ang + ease * 2.4);
+        ctx.fillRect(-1.8, -1.2, 3.6, 2.4);
+        ctx.restore();
+      }
+      ctx.restore();
+    }
   }
 
   // 日记/广播卡：左下角，底边锚在操作提示行（基线 CANVAS.h-20）上方
@@ -747,6 +979,32 @@ function drawSparkIcon(
   ctx.quadraticCurveTo(cx - r * 0.22, cy - r * 0.22, cx, cy - r);
   ctx.closePath();
   ctx.fill();
+}
+
+/** 布袋小图标（道具袋条用）：鼓底束口袋 + 扎绳，绳索黄；袋满换珊瑚色。 */
+function drawPouchIcon(
+  ctx: CanvasRenderingContext2D,
+  cx: number,
+  cy: number,
+  color: string,
+): void {
+  ctx.save();
+  ctx.fillStyle = color;
+  ctx.beginPath(); // 袋身：束口往下鼓
+  ctx.moveTo(cx - 2.5, cy - 4);
+  ctx.bezierCurveTo(cx - 7.5, cy - 1.5, cx - 7, cy + 6, cx, cy + 6);
+  ctx.bezierCurveTo(cx + 7, cy + 6, cx + 7.5, cy - 1.5, cx + 2.5, cy - 4);
+  ctx.closePath();
+  ctx.fill();
+  roundRect(ctx, cx - 3.5, cy - 7, 7, 3.2, 1.5); // 束口
+  ctx.fill();
+  ctx.strokeStyle = "rgba(4, 26, 36, 0.55)"; // 扎绳
+  ctx.lineWidth = 1.2;
+  ctx.beginPath();
+  ctx.moveTo(cx - 3.8, cy - 3.6);
+  ctx.lineTo(cx + 3.8, cy - 3.6);
+  ctx.stroke();
+  ctx.restore();
 }
 
 /** 小旗图标（任务胶囊用）：旗杆 + 三角旗，潟湖青。 */
