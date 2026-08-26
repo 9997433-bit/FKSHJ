@@ -10,14 +10,14 @@ import { MAX_PARTICLES, type Particle } from "./particles";
 
 /** 低于这个归一速度完全不出线：巡航时画面必须是干净的。 */
 const SPEED_GATE = 0.45;
-/** 满强度时每秒生成的条数。 */
-const RATE = 52;
+/** 满强度时每秒生成的条数；配上 ~0.26s 的寿命，同屏常驻约 30 条。 */
+const RATE = 120;
 /** 生成半径区间（距消失点，px）：中心留空，否则条纹会糊住玩家正前方。 */
-const R_MIN = 90;
-const R_MAX = 430;
-/** 条纹外扫速度（px/s）。 */
-const FLY_MIN = 420;
-const FLY_MAX = 1_020;
+const R_MIN = 60;
+const R_MAX = 520;
+/** 条纹外扫速度（px/s）；`spark` 按 v×0.02 画长度，所以这也是「条纹多长」。 */
+const FLY_MIN = 520;
+const FLY_MAX = 1_250;
 /** 画面是 16:9：把放射方向按这个比例拉扁，条纹才沿着画面对角散开而不是挤在上下边。 */
 const AX = 1.35;
 const AY = 0.72;
@@ -67,7 +67,7 @@ export function speedLines(
     const a = Math.random() * Math.PI * 2;
     const r = R_MIN + Math.random() * (R_MAX - R_MIN);
     const fly = FLY_MIN + (FLY_MAX - FLY_MIN) * drive * (0.6 + Math.random() * 0.6);
-    const life = 0.16 + Math.random() * 0.16;
+    const life = 0.18 + Math.random() * 0.16;
     list.push({
       x: cx + Math.cos(a) * r * AX,
       y: cy + Math.sin(a) * r * AY,
