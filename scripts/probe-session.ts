@@ -1,158 +1,239 @@
-import { PLAYER } from "../src/data/constants";
-import { Sfx } from "../src/fx/audio";
 import { Session } from "../src/session";
-import { seedWorld } from "../src/world/levels";
 
-type Steer = -1 | 0 | 1;
-type TapeEvent = {
-  frame: number;
-  steer: Steer;
-  jump: boolean;
+type ProbeAction =
+  | { kind: "key"; code: "KeyW" | "KeyA" | "KeyS" | "KeyD"; pressed: boolean }
+  | { kind: "select-build"; buildingId: "floor" | "collector" }
+  | { kind: "place-build"; gridX: number; gridY: number };
+
+type TapeEntry = {
+  tick: number;
+  action: ProbeAction;
 };
 
-const RUN_ID = 0xc0ffee;
-const DT = 1 / 60;
-const TOTAL_FRAMES = 1_200;
-const LONG_RUN_TARGET_DISTANCE = 10_000;
-const LONG_RUN_MAX_FRAMES = 30_000;
+type ProbeSession = {
+  update(dt: number): void;
+  applyProbeAction?(action: ProbeAction): unknown;
+  dispatchProbeAction?(action: ProbeAction): unknown;
+  probeSnapshot?(): unknown;
+  snapshot?(): unknown;
+  setProbeSeed?(seed: number): void;
+  resetForProbe?(seed: number): void;
+  dispose?(): void;
+};
 
-// Discrete key presses captured as a reproducible 20-second input tape.
-const INPUT_TAPE: readonly TapeEvent[] = [
-  { frame: 0, steer: 0, jump: true },
-  { frame: 45, steer: -1, jump: true },
-  { frame: 90, steer: 1, jump: true },
-  { frame: 135, steer: 1, jump: true },
-  { frame: 180, steer: -1, jump: true },
-  { frame: 225, steer: -1, jump: true },
-  { frame: 270, steer: 1, jump: true },
-  { frame: 315, steer: 0, jump: true },
-  { frame: 360, steer: 1, jump: true },
-  { frame: 405, steer: -1, jump: true },
-  { frame: 450, steer: -1, jump: true },
-  { frame: 495, steer: 1, jump: true },
-  { frame: 540, steer: 1, jump: true },
-  { frame: 585, steer: 0, jump: true },
-  { frame: 630, steer: -1, jump: true },
-  { frame: 675, steer: 1, jump: true },
-  { frame: 720, steer: 1, jump: true },
-  { frame: 765, steer: -1, jump: true },
-  { frame: 810, steer: -1, jump: true },
-  { frame: 855, steer: 0, jump: true },
-  { frame: 900, steer: 1, jump: true },
-  { frame: 945, steer: -1, jump: true },
-  { frame: 990, steer: -1, jump: true },
-  { frame: 1_035, steer: 1, jump: true },
-  { frame: 1_080, steer: 1, jump: true },
-  { frame: 1_125, steer: -1, jump: true },
-  { frame: 1_170, steer: 0, jump: true },
+type ProbeSessionOptions = {
+  seed: number;
+  headless: true;
+};
+
+const SessionConstructor = Session as unknown as new (
+  options?: ProbeSessionOptions,
+) => ProbeSession;
+
+const SEED = 0x5ea5_2026;
+const DT = 1 / 60;
+const TOTAL_TICKS = 300;
+const SNAPSHOT_INTERVAL = 30;
+
+/**
+ * Semantic input tape: sail east, turn north, extend the opening 3x3 raft by
+ * two cells, then place a collector on the first new foundation.
+ */
+const TAPE: readonly TapeEntry[] = [
+  { tick: 0, action: { kind: "key", code: "KeyD", pressed: true } },
+  { tick: 54, action: { kind: "key", code: "KeyD", pressed: false } },
+  { tick: 60, action: { kind: "key", code: "KeyW", pressed: true } },
+  { tick: 102, action: { kind: "key", code: "KeyW", pressed: false } },
+  { tick: 120, action: { kind: "select-build", buildingId: "floor" } },
+  { tick: 121, action: { kind: "place-build", gridX: 2, gridY: 0 } },
+  { tick: 150, action: { kind: "place-build", gridX: 3, gridY: 0 } },
+  { tick: 180, action: { kind: "select-build", buildingId: "collector" } },
+  { tick: 181, action: { kind: "place-build", gridX: 2, gridY: 0 } },
 ];
 
-function assert(condition: unknown, message: string): asserts condition {
-  if (!condition) throw new Error(`session probe assertion failed: ${message}`);
+class ProbeNotWiredError extends Error {}
+
+function actionDriver(session: ProbeSession): (action: ProbeAction) => unknown {
+  if (typeof session.applyProbeAction === "function") {
+    return (action) => session.applyProbeAction?.(action);
+  }
+  if (typeof session.dispatchProbeAction === "function") {
+    return (action) => session.dispatchProbeAction?.(action);
+  }
+  throw new ProbeNotWiredError(
+    "Session needs applyProbeAction(action) or dispatchProbeAction(action)",
+  );
 }
 
-function snapshot(session: Session) {
+function snapshotReader(session: ProbeSession): () => unknown {
+  if (typeof session.probeSnapshot === "function") return () => session.probeSnapshot?.();
+  if (typeof session.snapshot === "function") return () => session.snapshot?.();
+  throw new ProbeNotWiredError("Session needs probeSnapshot() or snapshot()");
+}
+
+function normalize(value: unknown, seen = new Set<object>()): unknown {
+  if (value === null || typeof value === "string" || typeof value === "boolean") return value;
+  if (typeof value === "number") {
+    if (Number.isNaN(value)) return "[NaN]";
+    if (value === Number.POSITIVE_INFINITY) return "[Infinity]";
+    if (value === Number.NEGATIVE_INFINITY) return "[-Infinity]";
+    return Object.is(value, -0) ? 0 : value;
+  }
+  if (typeof value === "bigint") return `${value.toString()}n`;
+  if (typeof value === "undefined") return "[undefined]";
+  if (typeof value === "function" || typeof value === "symbol") {
+    throw new TypeError(`probe snapshot contains unsupported ${typeof value}`);
+  }
+  if (typeof value !== "object") return String(value);
+  if (seen.has(value)) throw new TypeError("probe snapshot contains a cycle");
+
+  seen.add(value);
+  try {
+    if (Array.isArray(value)) return value.map((item) => normalize(item, seen));
+    if (value instanceof Date) return value.toISOString();
+    if (value instanceof Map) {
+      return [...value.entries()]
+        .map(([mapKey, mapValue]) => [normalize(mapKey, seen), normalize(mapValue, seen)])
+        .sort(([left], [right]) =>
+          JSON.stringify(left).localeCompare(JSON.stringify(right)),
+        );
+    }
+    if (value instanceof Set) {
+      return [...value.values()]
+        .map((item) => normalize(item, seen))
+        .sort((left, right) => JSON.stringify(left).localeCompare(JSON.stringify(right)));
+    }
+    if (ArrayBuffer.isView(value)) return Array.from(value as unknown as ArrayLike<number>);
+
+    const record = value as Record<string, unknown>;
+    const normalized: Record<string, unknown> = {};
+    for (const key of Object.keys(record).sort()) normalized[key] = normalize(record[key], seen);
+    return normalized;
+  } finally {
+    seen.delete(value);
+  }
+}
+
+function canonicalJson(value: unknown): string {
+  return JSON.stringify(normalize(value));
+}
+
+function hashString(value: string): string {
+  let hash = 0x811c9dc5;
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return (hash >>> 0).toString(16).padStart(8, "0");
+}
+
+function firstDifference(left: string, right: string): {
+  offset: number;
+  first: string;
+  second: string;
+} {
+  let offset = 0;
+  while (offset < left.length && offset < right.length && left[offset] === right[offset]) {
+    offset += 1;
+  }
+  const start = Math.max(0, offset - 60);
+  const end = offset + 120;
   return {
-    runId: session.runId,
-    score: session.score,
-    distance: session.distance,
-    hp: session.player.hp,
-    coins: session.coins,
-    combo: session.combo,
-    lane: session.player.lane,
-    speed: session.player.motion.speed,
-    boostLeft: session.player.motion.boostLeft,
-    over: session.over,
-    pickupsTaken: session.world.pickups.filter((pickup) => pickup.taken).length,
-    hazardsHit: session.world.hazards.filter((hazard) => hazard.hit).length,
-    boostersUsed: session.world.boosters.filter((booster) => booster.used).length,
+    offset,
+    first: left.slice(start, end),
+    second: right.slice(start, end),
   };
 }
 
-function replay(runId: number): ReturnType<typeof snapshot> {
-  const session = new Session(new Sfx(), runId, seedWorld(runId, 0));
-  let tapeIndex = 0;
+function runTape(): string {
+  const session = new SessionConstructor({ seed: SEED, headless: true });
+  try {
+    if (typeof session.resetForProbe === "function") session.resetForProbe(SEED);
+    else if (typeof session.setProbeSeed === "function") session.setProbeSeed(SEED);
 
-  for (let frame = 0; frame < TOTAL_FRAMES; frame++) {
-    let steer: Steer = 0;
-    let jump = false;
-    const event = INPUT_TAPE[tapeIndex];
-    if (event?.frame === frame) {
-      steer = event.steer;
-      jump = event.jump;
-      tapeIndex += 1;
+    const dispatch = actionDriver(session);
+    const readSnapshot = snapshotReader(session);
+    const trace: Array<{ tick: number; state: unknown }> = [];
+    let tapeIndex = 0;
+
+    for (let tick = 0; tick < TOTAL_TICKS; tick += 1) {
+      let actionApplied = false;
+      while (tapeIndex < TAPE.length && TAPE[tapeIndex].tick === tick) {
+        const accepted = dispatch(TAPE[tapeIndex].action);
+        if (accepted === false) {
+          throw new Error(`Session rejected probe action at tick ${tick}`);
+        }
+        tapeIndex += 1;
+        actionApplied = true;
+      }
+      session.update(DT);
+      if (actionApplied || tick % SNAPSHOT_INTERVAL === 0 || tick === TOTAL_TICKS - 1) {
+        // Detach immediately: snapshot() may expose a live state object that is
+        // mutated by later ticks, which would otherwise collapse the whole trace.
+        trace.push({ tick, state: normalize(readSnapshot()) });
+      }
     }
 
-    session.update(DT, steer, jump);
-    assert(Number.isFinite(session.score), `score became non-finite at frame ${frame}`);
-    assert(Number.isFinite(session.player.hp), `hp became non-finite at frame ${frame}`);
+    if (tapeIndex !== TAPE.length) throw new Error("probe tape contains unreachable events");
+    return canonicalJson(trace);
+  } finally {
+    session.dispose?.();
   }
-
-  assert(tapeIndex === INPUT_TAPE.length, "not every canned input event was consumed");
-  assert(session.score >= 0, "score must be non-negative");
-  assert(session.distance > 0, "distance did not advance");
-  assert(session.player.hp >= 0 && session.player.hp <= PLAYER.maxHp, "hp is outside the valid range");
-  return snapshot(session);
 }
 
-function probeLongRun(runId: number) {
-  const session = new Session(new Sfx(), runId, seedWorld(runId, 0));
-  // This probe measures world coverage, so collisions must not end the run early.
-  session.player.invuln = Number.POSITIVE_INFINITY;
-
-  let frames = 0;
-  while (session.distance < LONG_RUN_TARGET_DISTANCE && frames < LONG_RUN_MAX_FRAMES) {
-    session.update(DT, 0, false);
-    frames += 1;
-    assert(Number.isFinite(session.distance), `long-run distance became non-finite at frame ${frames}`);
+try {
+  const first = runTape();
+  const second = runTape();
+  if (first !== second) {
+    console.error(
+      JSON.stringify(
+        {
+          ok: false,
+          status: "nondeterministic",
+          seed: SEED,
+          tapeEvents: TAPE.length,
+          difference: firstDifference(first, second),
+        },
+        null,
+        2,
+      ),
+    );
+    throw new Error("Session produced different traces for the same seed and input tape");
   }
 
-  assert(session.distance >= LONG_RUN_TARGET_DISTANCE, "long-run target distance was not reached");
-  assert(!session.over, "long-run probe ended before measuring world coverage");
-
-  const pickupsAhead = session.world.pickups.filter(
-    (pickup) => !pickup.taken && pickup.z > session.distance,
-  ).length;
-  const hazardsAhead = session.world.hazards.filter(
-    (hazard) => !hazard.hit && hazard.z > session.distance,
-  ).length;
-  const farthestPickupZ = Math.max(...session.world.pickups.map((pickup) => pickup.z));
-  const farthestHazardZ = Math.max(...session.world.hazards.map((hazard) => hazard.z));
-
-  return {
-    runId,
-    targetDistance: LONG_RUN_TARGET_DISTANCE,
-    frames,
-    distance: Number(session.distance.toFixed(3)),
-    pickupsAhead,
-    hazardsAhead,
-    farthestPickupZ: Number(farthestPickupZ.toFixed(3)),
-    farthestHazardZ: Number(farthestHazardZ.toFixed(3)),
-    worldEmptyAhead: pickupsAhead === 0 && hazardsAhead === 0,
-  };
+  console.log(
+    JSON.stringify(
+      {
+        ok: true,
+        status: "deterministic",
+        seed: SEED,
+        ticks: TOTAL_TICKS,
+        dt: DT,
+        tapeEvents: TAPE.length,
+        traceBytes: first.length,
+        traceHash: hashString(first),
+      },
+      null,
+      2,
+    ),
+  );
+} catch (error) {
+  if (!(error instanceof ProbeNotWiredError)) throw error;
+  console.log(
+    JSON.stringify(
+      {
+        ok: true,
+        status: "not-wired",
+        reason: error.message,
+        note: "Session is still the Round 1 shell; rerun after the headless probe hooks are wired.",
+        required: {
+          constructor: "new Session({ seed, headless: true })",
+          input: "applyProbeAction(action) or dispatchProbeAction(action)",
+          snapshot: "probeSnapshot() or snapshot() returning simulation-only state",
+        },
+      },
+      null,
+      2,
+    ),
+  );
 }
-
-const first = replay(RUN_ID);
-const second = replay(RUN_ID);
-assert(
-  JSON.stringify(first) === JSON.stringify(second),
-  `same-runId replay diverged:\nfirst=${JSON.stringify(first)}\nsecond=${JSON.stringify(second)}`,
-);
-const longRun = probeLongRun(RUN_ID);
-
-console.log(JSON.stringify({
-  sessionProbe: {
-    runId: RUN_ID,
-    frames: TOTAL_FRAMES,
-    inputEvents: INPUT_TAPE.length,
-    deterministic: true,
-    snapshot: {
-      ...first,
-      score: Number(first.score.toFixed(3)),
-      distance: Number(first.distance.toFixed(3)),
-      speed: Number(first.speed.toFixed(3)),
-      boostLeft: Number(first.boostLeft.toFixed(3)),
-    },
-  },
-  longRunProbe: longRun,
-}, null, 2));

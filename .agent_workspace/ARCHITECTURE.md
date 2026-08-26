@@ -1,236 +1,225 @@
-# 疯狂水世界 — 架构说明（Round 3 终审 / fable-arch）
+# 架构 —《疯狂水世界》海上末日生存原型
 
-本文是引擎层契约与全局结构的权威描述，基于 Round 3 收编后再加收尾轮
-（拆 `physics → camera`、结算文案、三分屏帮助）。玩法数值一律以
-`src/data/constants.ts` 为准（GAME_SPEC §9），本文不重复数值。
+Round 1 fable-arch 出品，Round 2 与运行中的 sim 对齐，Round 3 核验对齐
+并明确收编路径。本文是各子代理之间的**接口契约**：模块归属见
+`OWNERSHIP.md`，玩法定义见 `GAME_SPEC.md`。
 
-**本轮门禁实测**（收尾轮复跑）：`npm test` 39/39、`npm run build` 通过、
-`npm run smoke` 34 文件 + 10 内容检查通过、`npm run bench` 三项预算全过、
-`npm run probe` 确定性成立且长局 10,000 单位 `worldEmptyAhead: false`
-（前方仍有 111 拾取 / 46 障碍，最远生成 z≈17,154）。磁带快照见 BENCH.md
-（约 1191m、score 586.233、HP=0；`pickupsTaken` 会因回收少计）。
+**数值的真相在哪（Round 3 现状与分工）**：
 
-## 1. 模块图与分层（R3 收编后现状）
+- `src/data/constants.ts` 的镜像段**已逐项核验与 sim 数字对齐**
+  （网格/资源/建筑/产消/风暴/海盗/炮塔/小船，含 `TURRET.range =
+  TILE × 5`、`SKIFF.scoopRadius = TILE × 1.5` 这类派生值）。
+- 但 sim 目前仍读自己的本地副本：`sim/rules.ts`（资源/建筑/网格）、
+  `sim/economy.ts`（产出/吃喝/维修/断粮）、`sim/threats.ts`（风暴/
+  海盗波/炮塔）、`entities/skiff.ts` 与 `entities/pirate.ts`（小船/
+  海盗手感）。**Round 3 由 opus-core 负责**把 sim/entities 改为直接
+  import constants 的这些数，完成后 constants 即唯一真源；fable-arch
+  不改 sim。
+- `constants.ts` 中 CANVAS、LOOP、SAVE_KEY、DAY、SALVAGE **现在就
+  被运行时真实消费**（engine/input/hud/sim-rules 吃 CANVAS，loop 吃
+  LOOP，save 吃 SAVE_KEY，ocean 吃 DAY，junk 吃 SALVAGE），这五个
+  改这里就是改游戏。
+- 在 opus-core 完成收编之前，改平衡仍改 sim 原件，再同步 constants
+  的镜像段；两边不一致时，**以能跑的 sim 为准**。
+- 全游戏只有一套网格（TILE = 64px、原点画布正中、有符号格坐标），
+  **禁止再发明第二套网格**。
 
-```
-第 0 层  纯数据 / 纯函数（无 DOM、可在 Node 直接单测）
-  data/constants.ts      数值表（唯一来源；CAMERA / FEEL 已全组接线）
-  game/collision.ts      circleHit / overlapDepth / nearMiss / sameLane
-                         （sameLane 默认容差 ← FEEL.laneTol）
-  game/camera.ts         2.5D 投影 + 弯道 + 震动（← CAMERA，内联副本已删；
-                         怠速摇摆微系数属纯装饰有意留内）⚠ 模块级状态 cam
-  game/physics.ts        速度模型 + hitstop 记账 + 弯道甩出（slip/fall）
-                         + CHUTE 截面几何（← FEEL；无 camera import）
-  entities/collectible.ts entities/obstacle.ts entities/booster.ts  实体工厂
-  fx/particles.ts        粒子模拟/绘制（draw 需 ctx，step 纯函数）
-
-第 1 层  平台基建（DOM / WebAudio / localStorage）
-  game/engine.ts   画布 backing store + 场景状态机（本轮复审零缺陷零改动，§4）
-  game/loop.ts     rAF 循环、dt clamp、隐藏暂停（本轮复审零缺陷零改动，§5）
-  game/input.ts    键盘 + 指针 → 逻辑输入（含指针捕获防卡键；触屏三分屏）
-  fx/audio.ts      程序化 SFX + BGM（pad 双振荡器 + 八分琶音；静音时整套
-                   rig 拆除，不留零增益空转；意向/静音/AudioContext 三与门）
-  data/save.ts     hiScore/hiDistance/lastRunAt/runs/totalCoins 持久化
-
-第 2 层  内容与呈现
-  entities/player.ts  泳圈状态机：换道插值（中点翻面）/跳跃缓冲/刮墙/
-                      carve/弯道 slip/落水 fallen（← FEEL, physics,
-                      camera.chuteBank；内联副本已删）
-  world/levels.ts     双 LCG 游标流式生成 + SPAWN_TABLES + seedWorld(dateDay^runId)
-                      + themeIndex（取模循环）+ themeCycleAt（跨圈混色）
-  world/track.ts      滑道网格/墙/导流箭头（← FEEL.chuteFloor/chuteWall：画的边就是甩出的边）
-  world/water.ts      天空/剪影/泡沫（泡沫经 project 投影，随滑道弯曲、不再切墙）
-  ui/theme.ts         四主题色板 + 单圈混色 themeAt（钳制语义，见 §7-1）
-  ui/hud.ts           局内 HUD + 甩出预警（offChute01 两级淡入、reduced-motion
-                      守卫）；模块级动画状态有 resetHud() + distance 回退自动清零
-  ui/tube.ts          drawPlayerRing：高光/投影/涟漪/焊缝/无敌光环 + ringRoll
-  fx/splash.ts        水花预设（← particles）
-  ui/menus.ts         DOM overlay 菜单；面板打开期间绑定 M 静音键
-
-第 3 层  聚合
-  session.ts   「一局」聚合体：update（takeHitstop 先扣冻结 → 世界推进 →
-               generateAhead 流式续生）+ draw（themeCycleAt 上色、
-               entityCullZ 裁剪、z 降序绘制、HUD 接 offChute01）
-  main.ts      组合根：装配 Engine/Loop/Input/Sfx/Session；startRun 里
-               resetHud()；三处菜单接 audio 静音开关
-```
-
-分层规则：**只允许向下 import**；只有 `session.ts` / `main.ts` 允许同时
-触碰多个子系统。跨界例外只剩 `player → camera`（chuteBank 纯查询，无害）。
-`physics → camera` 已拆：apply* 把冲击写入 `Motion.kick`，session 经
-`takeKick` 转发给 `kickCamera`。滑道边缘的单一来源是 `FEEL.chuteFloor /
-chuteWall`：physics.offChuteDepth 与 track 画边读同一对数字。
-
-## 2. 场景状态机（GAME_SPEC §7）
-
-状态由 `Engine` 持有（`SceneId`），迁移表 `SCENE_FLOW`：
+## 1. 模块图
 
 ```
-boot ──► title ──► playing ──► gameover ──► title
-                    │  ▲   │                （或 gameover ──► playing 再来一局）
-                    ▼  │   └──► gameover
-                  paused ──► playing
-                  paused ──► title
+                       ┌────────────────────┐
+                       │  main.ts（父调度器） │  DOM 查询、Engine/Session/Loop 接线
+                       └─────────┬──────────┘
+                                 │ 组装
+        ┌────────────────┬───────┴────────┬─────────────────┐
+        ▼                ▼                ▼                 ▼
+┌───────────────┐ ┌─────────────┐ ┌──────────────┐ ┌───────────────┐
+│ game/engine.ts │ │ game/loop.ts │ │  session.ts  │ │ data/save.ts  │
+│ 画布/DPR/场景机 │ │  rAF 主循环  │ │ 一局聚合(父管)│ │ 存档(content) │
+└───────┬───────┘ └──────┬──────┘ └──────┬───────┘ └───────────────┘
+        │ scene 事件      │ dt,elapsed    │ 每帧调用 ↓（顺序固定）
+        ▼                ▼               ▼
+┌─────────────────────────────────────────────────────────────────┐
+│  sim/**（opus-core）：木筏格子状态、建造规则、产消结算、           │
+│  风暴/海盗调度、胜负判定 —— 纯数据 + 纯函数，不碰 DOM/Canvas       │
+├─────────────────────────────────────────────────────────────────┤
+│  entities/**（opus-core）：小船、海盗、漂浮物的运动与碰撞          │
+│  game/input.ts（opus-core）：键鼠采样 → 每帧输入快照               │
+├─────────────────────────────────────────────────────────────────┤
+│  world/**、fx/**（opus-content）：海面/木筏/漂浮物绘制、粒子、音频  │
+│  ui/**、index.css（fable-sota）：标题/暂停/结算 overlay、HUD       │
+├─────────────────────────────────────────────────────────────────┤
+│  data/constants.ts（fable-arch）：被消费的共享数（CANVAS/LOOP/     │
+│  SAVE_KEY/DAY/SALVAGE）+ sim 数值的文档镜像（以 sim 为准）          │
+└─────────────────────────────────────────────────────────────────┘
 ```
 
-- `boot` 是构造期占位：main.ts 模块底部同步调用 `showTitle()`，boot 存活
-  0 帧即走合法迁移 boot→title。规格 §7 要求该状态存在——**不是死代码**。
-- 契约：`engine.scene = next` 与 `engine.setScene(next)` 等价；**同值幂等**
-  （返回 false，不通知监听者）；不在迁移表内的切换 `console.warn` 后仍放行。
-- `engine.onSceneChange(fn)` 返回退订函数。R2 简报曾建议 BGM 从这里起停，
-  实际落地方案更简单也更对：BGM 由 `Sfx.unlock()`（首次开始的用户手势）
-  启动，之后跨场景常驻，只受静音/音乐意向门控——标题与结算下有 pad 垫底
-  是有意行为，不是漏接。onSceneChange 目前无消费者，保留为扩展点。
+依赖方向自上而下单向：sim 不 import 渲染层；渲染层只读 sim 暴露的
+状态，不回写。跨层通信只走两条路：Loop 的 `tick(dt, elapsed)` 与
+Engine 的 `onSceneChange`。
 
-## 3. 帧数据流
+## 2. 场景流
 
 ```
-rAF(t)
- └─ loop：先排下一帧 rAF；dt = clamp((t-last)/1000, ≤ LOOP.maxDtS)；elapsed += dt
-     └─ main tick(dt)
-         ├─ playing：consumePause→pause；否则
-         │    session.update(dt, steer, consumeJump())
-         │      ├─ time += dt；step = takeHitstop(motion, dt)  ← 受击顿帧在此吃 dt
-         │      ├─ player.step(step)（换道插值 / 跳跃缓冲 / 无敌与刮墙冷却 / carve
-         │      │              / slip 甩出 / fallT 落水计时 → fallen 时 hp=0）
-         │      ├─ physics.stepSpeed(motion, step) → dz = spd·step·FEEL.worldScale
-         │      ├─ generateAhead(world, distance + STREAM_AHEAD)  ← 流式续生
-         │      ├─ collect / hazards / boosts（FEEL 窗口粗筛 + sameLane + circleHit；
-         │      │   判定用 player.lane = round(laneCenter + slip)，中点翻面跟视觉）
-         │      └─ hp≤0 → over；takeKick → kickCamera；finish() 带 fallen
-         ├─ paused：consumePause → 回 playing
-         └─ session.draw(ctx)：themeCycleAt → sky → silhouettes → track(syncCamera)
-                                → foam(经 project) → z 降序实体+drawPlayerRing
-                                → 粒子 → HUD(含 offChute01 甩出预警)
+boot ──▶ title ──▶ playing ◀──▶ paused
+                      │            │
+                      ▼            ▼
+                  gameover ──▶  title
+                      │
+                      └────▶ playing（直接再来一局）
 ```
 
-- **hitstop 语义**：`applyHit` 把 `FEEL.hitstopS` 记到 `Motion.hitstopLeft`，
-  session.update 每帧用 `takeHitstop` 把冻结量从 dt 里扣掉——世界（玩家、
-  速度、距离、连击计时）停一拍，但 `session.time` 仍按全额 dt 走，涟漪、
-  无敌闪烁等动画在冻结期间继续呼吸。loop.ts 不感知任何游戏时间缩放，
-  职责边界与 R2 设计一致（顿帧是会话层职责）。
-- 镜头状态在 `drawTrack → syncCamera(cameraZ, time)` 中推进。**绘制顺序即
-  镜头时序**：foam 与实体都在 track 之后 project，用的是本帧镜头；任何新
-  绘制层若排在 drawTrack 之前调用 project，会用上一帧镜头。
-- 两条死法（GAME_SPEC §4.4）汇成一个出口：落水把 `player.fallen` 置真并将
-  hp 清零，session 只看 `hp ≤ 0`。`Session.result().fallen` 交给菜单：
-  落水文案「冲出滑道」，撞瘪文案「气漏光了」（新纪录仍用「载入史册」）。
-- 画布内只画游戏世界与 HUD；菜单是 DOM overlay。非 playing 场景下
-  session.draw 仍每帧执行（标题背景即上一局定格），有意行为。
+- 状态机唯一持有者是 `Engine`（`engine.scene` / `setScene`）。
+- 合法迁移表 `SCENE_FLOW` 写死在 engine.ts；不合法迁移 `console.warn`
+  后**仍放行**——多代理协作下宁可吵闹也不软锁死游戏。
+- 同值赋值幂等（返回 false、不广播），listener 可安全地在回调里再次
+  setScene 而不用担心自触发死循环。
+- UI（fable-sota）通过 `onSceneChange` 挂/卸 overlay；音频（opus-content）
+  同理切 BGM。谁触发迁移：input 层（P/Esc → paused）、sim 层（判负 →
+  gameover）、UI 按钮（title/playing）。
 
-## 4. Engine 契约（src/game/engine.ts）
+## 3. 帧数据
 
-Round 3 全文复审，**无缺陷，零改动**。要点：
+`createLoop(tick)` 每帧回调 `tick(dt, elapsed)`：
 
-- **逻辑坐标系**：绘制代码工作在 `CANVAS.w × CANVAS.h`（1280×720），Engine
-  按 devicePixelRatio（截断到 `CANVAS.maxDpr`）放大 backing store 并
-  `setTransform` 抹平；`fit()` 在尺寸未变时不写 canvas.width/height。
-- **DPR/resize 自愈**：resize 直接 refit；跨屏拖窗靠对当前 dppx 的一次性
-  media query（触发后重挂新值）。所有监听都挂 AbortController signal，
-  dispose 一次性摘干净——无泄漏。
-- **上下文丢失**：contextlost/contextrestored（Chromium 系）自动恢复；
-  `engine.contextLost` 可用于跳过丢失期间的绘制（main 未接，丢失期间多画
-  几帧空操作，无害）。
+| 量 | 含义 | 保证 |
+| --- | --- | --- |
+| `dt` | 本帧模拟时长（秒） | 已被 clamp 到 `LOOP.maxDtS`（0.033s），永不为负 |
+| `elapsed` | 累计模拟时长（秒） | 历次 dt 之和；暂停/页面隐藏期间**不增长** |
 
-## 5. Loop 契约（src/game/loop.ts）
+一帧内的固定顺序（session.ts 按此接线，任何人不得私自调换）：
 
-Round 3 全文复审，**无缺陷，零改动**。要点：
+```
+input.snapshot()            采样键鼠 → 只读快照（本帧内不再变）
+  └▶ sim.update(dt, snap)   建造 → 产出 → 消耗 → 风暴 → 海盗 → 胜负
+       └▶ world/fx.draw()   清屏 → 海面 → 木筏 → 实体 → 粒子
+            └▶ ui.hud()     资源条 / 预警 / 天数（最后画，永远在最上层）
+```
 
-- `createLoop(tick)`；`tick(dt, elapsed)`——dt clamp 到 `LOOP.maxDtS`，
-  elapsed 为累计模拟秒数（暂停/隐藏期间不增长）。
-- **隐藏即暂停**：document.hidden 停发帧，恢复后时间基准归零走
-  `LOOP.fallbackDtS`，隐藏期间的真实时间不计入 elapsed。
-- **异常隔离**（R2 修复，本轮验证仍在）：下一帧 rAF 在调用 tick **之前**
-  排入，tick 抛错错误照常上抛但循环不死；tick 内 stop()/dispose() 会取消
-  这次预约。**dispose 守卫**：dispose 后 start() 为 warn + no-op。
-- 模块在 Node 可安全 import（`hasDoc` 守卫），仅 start 后依赖 rAF。
+约束：
 
-## 6. 数值表（src/data/constants.ts）
+- **模拟只认 dt**：所有速率写成「单位/秒 × dt」，禁止按帧计数。
+  昼夜相位、风暴/海盗计时一律基于 `elapsed`（暂停自动冻结）。
+- **渲染无副作用**：draw 不改 sim 状态；需要动画相位就用 `elapsed`。
+- `scene !== "playing"` 时跳过 `sim.update`，但照常 draw（暂停画面
+  是冻结的世界 + 遮罩，不是黑屏）。
+- 长挂起（断点、切后台）恢复后单帧最多推进 0.033s，不会出现风暴
+  一口气结算完、海盗瞬移贴脸的隧穿。
 
-分组：CANVAS/LOOP（引擎）、LANES/PLAYER/SPEED/SCORE（玩法 §4）、
-GEN（生成 §5，horizon×3 = 流式续生纵深）、CAMERA / FEEL、SAVE_KEY、ThemeId。
+## 4. 坐标与网格
 
-接线状态（Round 3 终审）：**CAMERA 与 FEEL 全部字段均有真实消费方**——
-camera.ts（投影/弯道/震动）、physics.ts（速度模型/kick 力度/hitstop）、
-player.ts（操控）、collision.ts（sameLane 默认容差）、session.ts（判定
-窗口/entityCullZ/takeHitstop），模块内同值副本已删。抽查通过：
-`rg 'BEND_|RISE|SETTLE|_CARVE|JUMP_BUFFER' src/game src/entities`
-零命中；physics 仍持有的甩出滑道常量是下述有意例外。
+- 逻辑画布 1280×720（`CANVAS`），engine.fit 按 DPR 放大 backing store，
+  绘制代码不感知物理像素。
+- 木筏网格只有一套（真相在 `sim/rules.ts`）：格边长 `TILE = 64`px；
+  格坐标是**有符号整数** (gx, gy)；`RAFT_ORIGIN`（画布正中 640, 360）
+  是 (0, 0) 格的**中心**，`center = RAFT_ORIGIN + (gx, gy) × TILE`，
+  换算走 `tileCenter` / `worldToTile`。没有 gridW/gridH——网格无边界，
+  木筏靠四邻接向外扩张。
+- 开局 3×3（|gx| ≤ 1 且 |gy| ≤ 1），中心 (0, 0) 是指挥中心 `core`
+  （不可建造、不可拆除）。
+- 小船、海盗、漂浮物在连续坐标系运动，只有建筑吸附网格。小船活动
+  范围是 `SEA_BOUNDS`（木筏为中心 1920×1080）；漂浮物默认只在可见
+  画布内漂（见 junk.ts 的 DEFAULT_BOUNDS）。
 
-甩出滑道几何与计时（`chuteFloor` / `chuteWall` / `slip*` / `rimLane` /
-`fallTimeS` / `fallRecover`）已入 FEEL；physics 只留 `CHUTE` 作为
-`{ floor, wall }` 别名给 `offChuteDepth`。`SPEED.wallPenalty` 由
-player.scrapeWall → applyWallScrape 消费。
+## 5. 玩法契约
 
-改会影响手感/计分的字段必须同步 `src/tests` 断言与 BENCH 快照。
+### 5.1 建造（真相：sim/rules.ts checkPlace / place）
 
-## 7. Round 2 遗留清单处置（对照 ROUND2_BRIEF，R3 终审）
+放置请求 = `(building: PlaceableId, gx, gy)`。**全部校验通过后一次性
+扣费落地**，任何一条不过则整体拒绝、分文不扣（原子性，走 `pay()`）：
 
-「潜在边界风险」8 条的结论：
+1. 邻接：`floor` 目标必须是**空海面**且四向（上下左右，不含斜角）至少
+   贴一块已有木筏格；其余建筑目标必须是**空地基**（格子是 floor）。
+   网格无边界，没有「格子在网格内」这一条。
+2. 库存 ≥ `BUILDINGS[building].cost` 的每一项。
+3. 校验顺序刻意是「位置先于价格」：位置不对时 HUD 报邻接错误，
+   不先怪玩家穷。
 
-1. **themeAt / themeCycleAt 双路径** —— ✅ 语义已对齐并文档化：
-   `theme.themeAt` 是**单圈画笔**（0..一圈内上色 + 段间混色，末段钳制），
-   `levels.themeCycleAt` 是**唯一对外入口**（距离折圈后交给 themeAt，再把
-   末段平滑混回热带港）。已抽查：全部绘制路径只走 themeCycleAt，themeAt
-   直接调用仅存于 levels 内部与测试；生成侧 `levels.themeIndex` 同为取模，
-   视觉与生成不会漂移。
-2. **camera/physics/player 内联副本** —— ✅ R3 opus-core 完成迁移，
-   副本已删（见 §6），collision.sameLane 默认容差也已同源。
-3. **physics → kickCamera 耦合** —— ✅ 已拆：applyHit / applyBoost /
-   applyWallScrape 只写 `Motion.kick`，session.update 末尾 `takeKick`
-   后转发 `kickCamera`。`rg 'kickCamera' src/game/physics.ts` 零命中。
-4. **HUD 模块级动画状态跨局泄漏** —— ✅ R3 fable-sota 完成：
-   `resetHud()` 在 startRun 显式调用，drawHud 内 distance 回退自动清零
-   兜底，两者幂等。
-5. **实体数组只增不删** —— ✅ R3 opus-content：`recycleBehind` 在
-   玩家身后 400 单位扫尾，步长 200；不碰 `gen` 游标，流式确定性保持。
-6. **探针磁带在新种子下早死** —— ✅ 已确认并入档：确定性磁带在 1198m
-   处 HP=0 结束（over=true, score 587.644），**确定性本身不受影响**
-   （两遍逐位一致）；长局探针关碰撞照常跑满 10,000。BENCH.md 已由
-   gpt-probe 刷新且注明 `seedWorld(runId, 0)` 钳日基准，快照与本轮
-   复跑逐项一致。
-7. **真实画布 60fps / GPU 填充未测** —— ❌ 仍缺浏览器实测（§8-C）。
-8. **FEEL.hitstopS 无消费方** —— ✅ R3 完成：applyHit 记账
-   `Motion.hitstopLeft`，session.update 经 takeHitstop 消费（§3）。
+落地即时生效：在空地基上盖房是**原格升级**——血量按原比例换算到新
+maxHp，不能靠重建洗血。无建造耗时。`refund` / `scrapValue`（半价
+向下取整）已在 sim 里备好，但目前没有接进玩家操作。
 
-「SOTA 验收差距（Round 3 冲刺）」清单终审：
+### 5.2 产出与消耗（真相：sim/economy.ts updateEconomy）
 
-- [x] camera/physics/player 改读 CAMERA/FEEL 并删内联副本（R3 opus-core）
-- [x] 受击 hitstop + 加速速度线（R3 opus-core / opus-content `speedlines.ts`）
-- [x] HUD `offChute01` 预警、跨局重置（R3 fable-sota：两级淡入预警胶囊
-      + 侧缘 danger 雾 + reduced-motion 守卫 + resetHud 双保险）
-- [x] 远离玩家的实体回收（R3 opus-content `recycleBehind`）
-- [x] themeAt 与循环语义对齐或文档标明（本轮完成，见上 §7-1）
-- [x] README / SOTA_BAR / ARCHITECTURE 与现网行为对齐（README 重写为
-      流式世界/落水/静音 M/四主题循环 + 本文终审 = fable-arch 本轮；
-      SOTA_BAR 已由 R3 fable-sota 重盘）
-- [x] 刷新 BENCH.md 快照（R3 gpt-probe；本轮复跑逐项吻合）
-- [ ] 浏览器里走一遍标题→再来一局（收尾轮补测，§8-C）
+1. **产出**：产出建筑自带 timer，**攒满 intervalS 吐一次整数货**
+   （collector 每 5s 木+塑各 1；purifier 每 3s 水 3；fish 每 3s 食 2），
+   不是每帧小数流。残血建筑按 `efficiencyOf` 减速（50%–100%）。
+   入库被 `RESOURCE_CAP`（建材 99、水/食 100）截断，溢出丢弃。
+2. **捞取**：小船在 `SKIFF.scoopRadius`（1.5 格 = 96px）内按空格捞，
+   按 `SALVAGE.yields` 掷整数入库，同样受上限截断。
+3. **维修**：岛民每 `REPAIR.intervalS`（2s）挑血量比例最低的一格
+   （指挥中心加权优先），花 1 木板补 9 血。
+4. **消耗**：人口 = `CREW.base`（3）+ 每座存活的非地基建筑 1；
+   每人每秒扣水 `UPKEEP.water`（0.12）、食 `UPKEEP.food`（0.1），
+   扣到 0 为止（不出现负库存）。
+5. **断供判定**：淡水或食物任一**没足额供上**，同一条断粮计时器就
+   按 dt 上走；喂饱后按 `STARVE.recoverMul`（2×）回落。计满
+   `STARVE.limitS`（25s）→ economy 抛 `starved`，session 切 gameover。
 
-R2 相对 R1 的八项演进（流式世界、主题循环、落水失败、换道中点翻面、
-泳圈质感、BGM+静音、CAMERA/FEEL 建组、loop 异常隔离）本轮全部复核确认
-在位且门禁全绿，不再逐条展开。
+产销平衡基准：一座净水机（1 水/s）> 全队水耗，一座钓鱼台（0.67 食/s）
+> 全队食耗（注意每盖一座建筑人口 +1，收支要连人一起算）；收集器只是
+慢流，建材大头靠开船拾荒。
 
-## 8. 收尾轮清单（Round 3 之后）
+### 5.3 风暴（真相：sim/threats.ts STORM）
 
-**A. 架构收敛** —— ✅ 已落地
+- 调度：首场 `firstS`（50s）；之后场间隔从 `gapS`（42s）每场缩
+  `gapDecayS`（3s），下限 `gapMinS`（22s）。全部基于 sim 的 elapsed。
+- 预警：落雷前 `warnS`（4s）就选好落点并抛 `storm-warn` 事件
+  （带目标格），HUD 才能提前把那几格标红；音频只读事件表现。
+- 结算：从**外圈**（至少缺一个四邻居的格子；只剩指挥中心时才打它）
+  随机抽 `1 + ⌊elapsed / extraEveryS⌋` 格（上限 `maxTargets` = 5），
+  每格**一次性**吃 `damage`（22）——一场啃不掉满血地基（40），两场
+  可以。归零的结构立即拆除，外圈随之重算——多包几层地板就是防波堤，
+  这是往外扩建的核心动机（岛民维修见 §5.2，能把啃过的格子补回来）。
 
-1. physics 不再 import camera：冲击写入 `Motion.kick`，session 转发。
-   CHUTE / slip / fall 常量已入 FEEL。验收：`rg 'kickCamera' src/game/physics.ts`
-   零命中。
+### 5.4 海盗（真相：sim/threats.ts WAVE/TURRET + entities/pirate.ts）
 
-**B. 玩法/呈现** —— ✅ 已落地
+- 调度：首波 `WAVE.firstS`（55s，晚于首场风暴，留出立炮塔的窗口）；
+  波间隔从 46s 每波缩 2.5s，下限 22s。波内人数 `min(6, 1 + ⌊波数/2⌋)`，
+  同屏上限 `maxAlive`（8）。同一波从相近方位来，一侧炮塔守得住。
+- 行为：木筏外约 `spawnRadius`（760px）生成 → 直线驶向**最近的木筏
+  格**（不限外圈）→ 进入 `reach`（46px）后以 4.5 dps 持续拆，拆完换
+  最近目标。速度 58 + 4/波（上限 130），血量 30 + 8/波。
+- 反制：炮塔是**单发制**——每 `shotIntervalS`（0.5s）对
+  `range`（5 格 = 320px）内最近海盗打 `damage`（9），DPS = 18。
+  射击节奏借用 cell.timer（炮塔不在 PRODUCTION 表里，economy 不碰它）。
+- 海盗被打死掉 `dropMetal`（2）金属——后期金属的稳定来源。
+  海盗碰到小船不掉血（死法只有断粮和拆家），无近战。
 
-2. 结算文案按 `result.fallen` 区分「冲出滑道」与「气漏光了」；
-   帮助与 GAME_SPEC 触控描述改为三分屏（0.33 / 0.67）。
+### 5.5 胜负（真相：session.ts fail + sim 判定）
 
-**C. 验收收尾** —— ✅ 已落地
+无胜利条件，是活多久的生存赛。gameover 触发条件（满足其一）：
 
-3. 浏览器实测（1920×1080）：标题→帮助（三分屏）→开始→换道/跳跃→暂停→
-   继续→结算（冲出滑道 / 气漏光了 / 载入史册）→再来一局→回标题。
-   注入采样约 60fps。
+- 指挥中心 `core` 血量归零（`isCoreDown`；core 归零不删格，结算画面
+  还画得出残骸）；
+- 断粮计时器计满 `STARVE.limitS`（25s，见 §5.2）。
 
-**门禁（合并前必须全绿）**
+结算面板展示：存活天数（`elapsed / DAY.lengthS`，120s 一天）、建筑数、
+累计捞取；最好成绩走 data/save.ts 落 localStorage。
 
-- `npm install && npm test && npm run build`
-- `npm run smoke && npm run probe && npm run bench`
+## 6. Engine / Loop 契约要点（复审结论）
+
+两模块本轮复审通过，接口冻结；只修了注释里指向旧规格章节号的引用
+（重开后 GAME_SPEC 场景章节是 §5，注释原写 §7）。使用方须知：
+
+- **Engine**：backing store 随 DPR/resize 自动重建；Canvas2D 上下文
+  丢失自动恢复（每帧全量重绘前可用 `engine.contextLost` 跳过无效
+  绘制）；`dispose()` 只在整体卸载时调用。
+- **Loop**：`start()` 幂等；页面隐藏自动停帧、恢复可见自动续跑且
+  隐藏时长不计入 elapsed；tick 抛错不停帧（错误正常上抛可上报）；
+  `dispose()` 之后 `start()` 为 warn + no-op。
+- 已知非缺陷备案：loop 以 `last === 0` 作「无上一帧」哨兵，理论上
+  与「rAF 时间戳恰为 0」冲突，但 rAF 时基是 navigation start，首帧
+  必然 > 0，实际不可达，故不为此加状态位。
+
+## 7. 未决事项（交给后续轮）
+
+- 存档（save.ts，opus-content）目前只落「最好成绩」（天数/捞取数），
+  键用 `SAVE_KEY`；局中进度存档（库存/格子/威胁计时）仍未做。
+- 人口 = 3 + 每座非地基建筑 1（economy CREW），是被动增长；
+  主动招募/岛民个体化仍是后续议题。
+- `refund` / `scrapValue` 已在 sim 备好但没接进玩家操作（无拆迁按钮）。
+- 让 sim/entities 直接 import constants（收编为唯一真源）：**Round 3
+  归 opus-core**。fable-arch 侧已完成前置：数字逐项对齐、删除废弃的
+  `StructureId`（旧名 `hq`）别名与旧网格叙事，镜像段可直接被 import。
+- 音频节点图、HUD 具体布局分别归 opus-content / fable-sota，不在本文约束。

@@ -2,26 +2,25 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { gameoverCopy } from "../ui/menus";
 
-describe("gameover copy", () => {
-  it("distinguishes a washout from a deflated tube", () => {
-    assert.deepEqual(gameoverCopy({ endedBy: "washout" }), {
-      title: "冲出滑道",
-      tag: "离心力把泳圈甩进了水里",
-    });
-    assert.deepEqual(gameoverCopy({ endedBy: "deflated" }), {
-      title: "气漏光了",
-      tag: "橡皮鸭和漩涡把泳圈撞瘪了",
-    });
+describe("gameoverCopy", () => {
+  it("returns non-empty titles for starved, coreDown, and new-record branches", () => {
+    const branches = [
+      gameoverCopy({ endedBy: "starved", isNew: false }),
+      gameoverCopy({ endedBy: "coreDown", isNew: false }),
+      gameoverCopy({ endedBy: undefined, isNew: true }),
+    ];
+
+    for (const copy of branches) assert.ok(copy.title.trim().length > 0);
   });
 
-  it("keeps the record headline and still names the cause", () => {
-    assert.equal(gameoverCopy({ isNew: true, endedBy: "washout" }).title, "载入史册");
-    assert.equal(gameoverCopy({ isNew: true, endedBy: "deflated" }).title, "载入史册");
-    assert.match(gameoverCopy({ isNew: true, endedBy: "washout" }).tag, /甩进水里/);
-  });
-
-  it("falls back to the old landing line when the cause is unknown", () => {
-    assert.equal(gameoverCopy({}).title, "冲上岸了");
-    assert.equal(gameoverCopy({ isNew: true }).title, "载入史册");
+  it("uses new-record copy for both explicit game-over reasons", () => {
+    assert.deepEqual(gameoverCopy({ endedBy: "starved", isNew: true }), {
+      title: "饿着肚子创了纪录",
+      tag: "下次先把钓鱼台盖起来",
+    });
+    assert.deepEqual(gameoverCopy({ endedBy: "coreDown", isNew: true }), {
+      title: "沉船前留下了传说",
+      tag: "海盗抢得走木板，抢不走纪录",
+    });
   });
 });

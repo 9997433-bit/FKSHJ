@@ -1,69 +1,92 @@
+/**
+ * 水花与碎屑 —— 一组「一句话就能喷出来」的粒子预设。
+ *
+ * 每个函数只负责一种事件的手感，调用方不用记 `spawnBurst` 的十个参数：
+ * 捞东西、物件入水、开船的尾迹、建造的木屑、结构被打的碎片。
+ */
+
 import { spawnBurst, type Particle } from "./particles";
 
 /**
- * 泳圈划水的持续水花。speed01 是速度归一值（0..1）：
- * 越快，水花越多、飞得越高、颗粒越大。
+ * 捞取水花：水滴以捞取点为心向外炸开，外加一圈瞬间的水环。
+ * `s01` 是力度（0..1），捞大件时给大一点。
  */
-export function splash(
-  list: Particle[],
-  x: number,
-  y: number,
-  color: string,
-  speed01 = 0.3,
-): void {
-  const s = Math.max(0, Math.min(1, speed01));
+export function scoopSplash(list: Particle[], x: number, y: number, color: string, s01 = 0.5): void {
+  const s = Math.max(0, Math.min(1, s01));
   spawnBurst(list, x, y, color, {
-    count: 3 + Math.round(s * 7),
-    speed: 70 + s * 190,
-    radius: 2.4 + s * 2.6,
-    life: 0.3 + s * 0.2,
-    spread: Math.PI * 0.9,
-    angle: -Math.PI / 2,
-    grav: 260,
+    count: 9 + Math.round(s * 7),
+    speed: 130 + s * 150,
+    radius: 2.6 + s * 1.8,
+    life: 0.34 + s * 0.16,
+    drag: 4.2,
+  });
+  spawnBurst(list, x, y, "#ffffff", {
+    count: 1,
+    shape: "ring",
+    radius: 7,
+    life: 0.3,
+    speed: 0,
   });
 }
 
-/** 撞击/落水的大水柱。 */
-export function bigSplash(
-  list: Particle[],
-  x: number,
-  y: number,
-  color: string,
-  speed01 = 0.5,
-): void {
-  const s = Math.max(0, Math.min(1, speed01));
+/** 物件入水 / 沉没：小而钝的一圈水点。 */
+export function plunk(list: Particle[], x: number, y: number, color: string): void {
   spawnBurst(list, x, y, color, {
-    count: 14 + Math.round(s * 10),
-    speed: 130 + s * 220,
-    radius: 3 + s * 3,
-    life: 0.5 + s * 0.3,
-    grav: 300,
+    count: 7,
+    speed: 80,
+    radius: 2.2,
+    life: 0.3,
+    drag: 5,
   });
-  spawnBurst(list, x, y, "#ffffff", { count: 1, shape: "ring", radius: 10, life: 0.4, speed: 0, grav: 0 });
 }
 
-/** 加速带尾流：向后拖的定向火花。 */
-export function boostWake(list: Particle[], x: number, y: number, color: string): void {
+/** 小船的尾迹：朝船尾方向喷一小撮白沫。 */
+export function boatWake(list: Particle[], x: number, y: number, dir: number, color: string): void {
   spawnBurst(list, x, y, color, {
-    count: 14,
-    shape: "spark",
-    speed: 260,
+    count: 3,
+    speed: 70,
     spread: Math.PI * 0.5,
-    angle: Math.PI / 2,
-    radius: 3,
+    angle: dir,
+    radius: 2.4,
     life: 0.36,
-    grav: 40,
+    drag: 3.2,
   });
 }
 
-/** 拾取闪光。 */
+/** 建造：木屑与火星向上蹦一下。 */
+export function buildChips(list: Particle[], x: number, y: number, color: string): void {
+  spawnBurst(list, x, y, color, {
+    count: 12,
+    shape: "spark",
+    speed: 170,
+    radius: 2.6,
+    life: 0.34,
+    drag: 3.6,
+  });
+}
+
+/** 结构被打：贴着撞点朝一个方向飞的碎片。`dir` 是受力方向（弧度）。 */
+export function hullDebris(list: Particle[], x: number, y: number, color: string, dir = 0): void {
+  spawnBurst(list, x, y, color, {
+    count: 12,
+    shape: "spark",
+    speed: 220,
+    spread: Math.PI * 0.8,
+    angle: dir,
+    radius: 3,
+    life: 0.4,
+    drag: 2.8,
+  });
+}
+
+/** 拾取 / 完成的小闪光。 */
 export function sparkle(list: Particle[], x: number, y: number, color: string, n = 10): void {
   spawnBurst(list, x, y, color, {
     count: n,
     shape: "spark",
     speed: 130,
-    radius: 2.4,
-    life: 0.32,
-    grav: 10,
+    radius: 2.2,
+    life: 0.3,
+    drag: 3,
   });
 }

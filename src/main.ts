@@ -1,11 +1,10 @@
 import { Engine } from "./game/engine";
 import { createInput } from "./game/input";
 import { createLoop } from "./game/loop";
-import { Sfx } from "./fx/audio";
-import { stepParticles } from "./fx/particles";
+import { isMuted, toggleMute, unlock } from "./fx/audio";
 import { Session } from "./session";
-import { renderOverlay } from "./ui/menus";
 import { resetHud } from "./ui/hud";
+import { renderOverlay } from "./ui/menus";
 
 const canvas = document.querySelector<HTMLCanvasElement>("#game");
 const overlayEl = document.querySelector<HTMLElement>("#overlay");
@@ -14,63 +13,60 @@ const overlay = overlayEl;
 
 const engine = new Engine(canvas);
 const input = createInput(canvas);
-const sfx = new Sfx();
-let session = new Session(sfx);
+let session = new Session();
 
-function audioControl() {
-  return {
-    muted: sfx.isMuted(),
-    onToggle: () => sfx.toggleMute(),
-  };
+function audio() {
+  return { muted: isMuted(), onToggle: () => toggleMute() };
 }
 
 function showTitle(): void {
-  input.clearQueued();
+  input.reset();
   engine.scene = "title";
   renderOverlay(overlay, "title", {
-    hiScore: Session.hiScore(),
+    hiDays: Session.hiDays(),
     onStart: startRun,
-    audio: audioControl(),
+    audio: audio(),
   });
 }
 
 function startRun(): void {
-  input.clearQueued();
-  sfx.unlock();
+  unlock();
   resetHud();
-  session = new Session(sfx);
+  input.reset();
+  session = new Session();
   engine.scene = "playing";
-  renderOverlay(overlay, "hidden", { hiScore: Session.hiScore() });
+  renderOverlay(overlay, "hidden", { hiDays: Session.hiDays() });
 }
 
 function pause(): void {
   input.clearQueued();
   engine.scene = "paused";
   renderOverlay(overlay, "paused", {
-    hiScore: Session.hiScore(),
+    hiDays: Session.hiDays(),
     onResume: () => {
+      input.clearQueued();
       engine.scene = "playing";
-      renderOverlay(overlay, "hidden", { hiScore: Session.hiScore() });
+      renderOverlay(overlay, "hidden", { hiDays: Session.hiDays() });
     },
     onTitle: showTitle,
-    audio: audioControl(),
+    audio: audio(),
   });
 }
 
 function finish(): void {
-  input.clearQueued();
+  input.reset();
   const r = session.result();
   engine.scene = "gameover";
   renderOverlay(overlay, "gameover", {
-    hiScore: r.hiScore,
-    score: r.score,
-    distance: r.distance,
-    coins: r.coins,
+    hiDays: r.hiDays,
+    days: r.days,
+    built: r.built,
+    salvaged: r.salvaged,
     isNew: r.isNew,
-    endedBy: r.fallen ? "washout" : "deflated",
+    endedBy: r.endedBy,
     onRetry: startRun,
     onTitle: showTitle,
-    audio: audioControl(),
+    audio: audio(),
   });
 }
 
@@ -79,20 +75,26 @@ const loop = createLoop((dt) => {
     if (input.consumePause()) {
       pause();
     } else {
-      const steer: -1 | 0 | 1 = input.left ? -1 : input.right ? 1 : 0;
-      session.update(dt, steer, input.consumeJump());
-      stepParticles(session.particles, dt);
+      session.selected = input.selected;
+      if (input.consumeScoop() || input.scoopHeld) session.tryScoop();
+      const click = input.consumeClick();
+      session.update(dt, {
+        ax: input.ax,
+        ay: input.ay,
+        click: click ? { x: click.x, y: click.y, secondary: click.secondary } : null,
+      });
       if (session.over) finish();
     }
   } else if (engine.scene === "paused" && input.consumePause()) {
+    input.clearQueued();
     engine.scene = "playing";
-    renderOverlay(overlay, "hidden", { hiScore: Session.hiScore() });
+    renderOverlay(overlay, "hidden", { hiDays: Session.hiDays() });
   }
 
-  session.draw(engine.ctx);
-  if (engine.scene === "title") {
-    // 标题下仍画一局预览水面
-  }
+  const live = engine.scene === "playing";
+  session.draw(engine.ctx, live && input.pointerOver ? input.pointer : undefined, {
+    hud: live || engine.scene === "paused",
+  });
 });
 
 showTitle();

@@ -1,169 +1,231 @@
-# SOTA 基准线 — 视觉 / UX / 手感（Round 3 更新 · fable-sota）
+# SOTA 基准线 — 视觉 / HUD / 菜单 / 手感（Round 3 · fable-sota · 海上末日重开）
 
-> 目的：定义「2026 年的水上乐园街机网页游戏」应该达到的体验底线，对照当前构建打分，
-> 并列出必修项与验收 rubric。所有主题色一律经 `src/ui/theme.ts`，数值一律经 `src/data/constants.ts`。
-> Round 3 更新：对照合并后的 `agent/crazy-water-world`（8601a51，六路 R2 成果已并入）重新盘点，
-> 勾掉 R2 落地的 P0/P1，并记录本轮 fable-sota 的 HUD 交付与接线交接。
+> 目的：定义「2026 年的海上末日拾荒建造网页游戏」应该达到的体验底线。
+> 基调一句话：**手游浮岛基建的轻松感——末世但不丧**。天塌了海涨了，
+> 但画面里永远晒得到太阳：暖阳黄 + 潟湖青压深海底色，危险用珊瑚色不用血红，
+> 文案带摸鱼的松弛感，结算永远给「再来一局」的钩子。
+> 对照对象是益世界《疯狂水世界》一类休闲基建手游的 UI 手感（禁止照抄素材与数值）。
 
-## 1. 2026 年街机水滑道网页游戏应有的样子
+## 1. 这个品类的 UI 应有的样子
 
 ### 1.1 首帧体验（0–10 秒）
-- 打开即见标题 + 动态水面预览，无白屏、无加载条（离线单文件构建）。
-- 一个主按钮、一次点击（或按 Enter）进入游戏；操作说明内联展开，绝不使用 `alert()`。
-- 最高分立即可见，制造"再来一把"的钩子。
+- 打开即见标题卡片 + 背后实时海面（loop 始终画 session），无白屏无加载条。
+- 一个主按钮、一次点击（或 Enter）出海；玩法说明内联展开，绝不 `alert()`。
+- 「最长存活 N 天」立即可见——生存品类的复玩钩子是天数不是分数。
 
-### 1.2 视觉
-- 60fps @1080p；粒子峰值 < 400（规格红线）。
-- 伪 3D 滑道：近大远小、消失点在画布上方 18%，弯道左右摆动带出速度感。
-- 水面 ≥ 2 层正弦叠加 + 泡沫带；玩家泳圈有高光、投影、入水涟漪。
-- 四个主题段（热带港 / 洞穴瀑 / 火山泉 / 霓虹夜）**循环流转**且相邻段平滑插值过渡，
-  天空、水色、雾色不允许硬切——包括一圈结束混回热带港的那一段。
-- 所有 gameplay 色值语义化（hp / coin / gem / danger），随主题联动，禁止模块内散落 hex。
+### 1.2 视觉基调
+- 深海底色上必须有暖色光源（晨光 / 暖阳黄点缀），整屏不允许灰暗压抑。
+- 面板圆角 ≥ 12px、卡片式、半透明毛玻璃；按钮做成阳光木牌感（暖黄渐变）。
+- 危险 / 不足 / 断粮一律珊瑚色 `#ff8a5c` 系，禁止纯血红大警报。
+- 图标全程序化绘制（Canvas 路径 / CSS），零外链素材。
 
-### 1.3 手感（juice）
-- 每次得分都有确认感：金币音阶上行、连击计数弹跳（scale pop + 回弹）。
-- 受击要"疼"：短促屏震（<120ms）、HP 心形脉冲、速度骤降的镜头拉近。
-- 加速带要"爽"：速度条冲入红区、速度线 / FOV 拉伸、水花密度提升。
-- 换道插值 120–180ms，带轻微倾斜（roll）预告方向。
-- 失败要"有预兆"：被弯道甩向滑道边缘时，玩家必须在落水前就看见警告并有时间自救。
+### 1.3 HUD
+- 布局红线：资源与生存条贴左上、天数贴右上、建造栏贴底部中央，
+  **画面中央（浮岛与小船的舞台）永不遮挡**。
+- 材料（木板/塑料/金属/绳索）图标 + 数字；数字在入账瞬间弹跳（scale pop ≤ 0.35s）。
+- 淡水 / 食物是持续消耗的生存条：胶囊条 + 图标，低于 25% 柔和呼吸脉冲
+  （`prefers-reduced-motion` 下静止），不闪屏不弹窗。
+- 天数徽章：太阳 + 当天进度弧；换天瞬间徽章弹一下，给「又活过一天」的确认感。
+- 建造快捷栏：1–5 键位角标 + 建筑图标 + 名称 + 花费；选中格抬升 + 亮边，
+  造不起的格子半透明、花费染珊瑚色——玩家不用点进任何菜单就知道差什么料。
 
-### 1.4 HUD / UI
-- HUD 全部贴边：左上分数/距离、左中连击、右上 HP + 主题徽章、左下速度条，**永不遮挡滑道中线**。
-- HUD 动画状态跨局隔离：上一局尾帧的连击弹跳 / 掉血脉冲不得串进新一局。
-- 菜单为卡片式面板：入场动画（fade + scale ≤ 300ms）、统计格、控制提示胶囊（kbd 风格）。
-- 结算页一屏读完：分数 / 距离 / 金币 / 历史最高 四格 + 新纪录徽章。
-- 音效可一键静音（按钮 + M 键），状态可见（`aria-pressed`）。
+### 1.4 菜单
+- 三面板（title / paused / gameover）卡片式，入场 fade+scale ≤ 300ms。
+- 结算一屏读完：**存活天数**（highlight 放大）/ 建筑 / 拾荒 / 最长存活 四格 +
+  新纪录徽章；死因文案分「断粮」「指挥中心被拆」两路，语气自嘲不悲情。
+- Enter 在标题=出海、暂停=继续、结算=再来一局；P/Esc 暂停（input 归 opus-core）。
+- 静音按钮右上角 + M 键，`aria-pressed` 状态可见。
 
-### 1.5 无障碍（accessibility-lite）
-- 全部按钮可 Tab 聚焦，`:focus-visible` 有 3px 高对比描边；命中区 ≥ 44px。
-- Enter 在标题=开始、暂停=继续、结算=再来一局；Esc/P 暂停。
-- `prefers-reduced-motion` 下关闭装饰动画（DOM 面板动画与画布内持续脉冲同理）。
-- 面板带 `role="dialog"` 和 `aria-label`；帮助按钮带 `aria-expanded`。
+### 1.5 手感（juice，UI 侧份额）
+- 资源入账 = 数字弹跳；换天 = 徽章弹跳；选建筑 = 格子抬升。
+- 悬停按钮上浮 2px、按下缩 0.97——手游按钮的「有肉感」。
+- 世界侧 juice（捞取水花、建造落地弹、炮塔后座）归 opus-content/fx 与 core。
 
-### 1.6 音频
-- 程序化合成（Web Audio），零外部文件；首次交互解锁。
-- 金币 / 宝石 / 加速 / 受击 / 跳跃五类 SFX 音色可区分；连击升高时金币音调上行。
-- 轻量 BGM 垫底，与静音开关同门控。
+### 1.6 无障碍（accessibility-lite）
+- 按钮可 Tab 聚焦，`:focus-visible` 3px 潟湖青描边；命中区 ≥ 44px。
+- 面板带 `role="dialog"` + `aria-label`；帮助按钮带 `aria-expanded`。
+- `prefers-reduced-motion` 下：面板无入场动画、徽章不脉冲、HUD 低量条不呼吸。
 
-## 2. 当前构建评分（基线 = Round 2 合并 8601a51 + 本轮）
+## 2. 当前构建评分（基线 = 重开脚手架 1a07e6a → 本轮交付后）
 
 | 维度 | 得分/10 | 依据 |
 | --- | --- | --- |
-| 首帧体验 | 8 | 标题一击 / Enter 进入、内联帮助、最高分可见；标题背后即是实时水面（loop 始终画 session） |
-| 滑道视觉 | 7→8 | R2 合并修掉了 R1 遗留的泡沫切墙：`drawFoam` 现经 `project` 投影并夹在 `FOAM_HALF` 水槽内，跟着滑道弯曲、近大远小 |
-| 主题系统 | 7→8 | R2 `themeIndex` 取模循环 + `themeCycleAt` 跨圈混色落地，跑多远都不再卡霓虹；遗留：`themeAt`（钳制）双路径仍在，新绘制必须走 cycle（见 §4） |
-| 手感 juice | 5→6 | R2 补上失败预兆链路（弯道甩出 → 擦边计时 → `fallen` 落水）与换道中点翻面判定；本轮把预兆接到 HUD 可视化；仍缺 hitstop（`FEEL.hitstopS` 无消费方）、加速速度线 |
-| HUD | 8→9 | 连击 pop、速度条、主题徽章、心形 HP、语义 panel 色；本轮加 `offChute01` 甩出预警（边缘雾 + 胶囊 + 计时条）与跨局动画状态重置（`resetHud` + 距离回退自愈） |
-| 菜单 UX | 8 | 卡片面板 + 统计格 + 控制胶囊 + Enter 快捷键 + 静音按钮；R2 起 main.ts 三处 renderOverlay 已传 `audio`，接线闭环 |
-| 无障碍 | 7 | focus-visible、≥46px 命中区、aria、reduced-motion；本轮画布内甩出预警的呼吸脉冲也尊重 `prefers-reduced-motion` |
-| 音频 | 6→7 | 五类 SFX + 金币连拾音阶上行 + R2 程序化 BGM 落地，静音一键全静；缺 BGM 随主题段变奏 |
-| 性能 | 7 | 粒子上限守住；流式生成已测到 10 万距离仍便宜，但实体数组只增不删（R3 可扫尾回收）；真实 1080p 填充率仍未测 |
+| 首帧体验 | 2→6 | 脚手架是静态 innerHTML 占位 → 本轮 `renderOverlay("title")`：一键出海 + Enter + 内联说明 + 最长存活钩子；差实时海面背景（opus-content）与 main 接线 |
+| 视觉基调 | 2→4 | 画布仍是 session 占位纯色；CSS 端已完成阳光化（晨光背景 / 暖阳标题 / 木牌按钮），画布内基调等海面与浮岛落地后再评 |
+| HUD | 0→6 | 本轮交付资源条 / 生存条 / 天数徽章 / 岛民胶囊 / 建造快捷栏全套绘制 API；未接线前不显示，接线见 §5；缺实测数据流验证 |
+| 菜单 UX | 1→7 | 三面板全套 + 结算存活天数 highlight + 死因双路文案 + 静音/M + Enter 全场景 + 自动聚焦；扣分：回标题不二次确认、结算数字无滚动动画 |
+| 手感 juice | 1→4 | UI 侧已备：资源 pop / 换天 pop / 选中抬升 / 低量脉冲 / 按钮微交互；世界侧（水花 / 落地弹 / 屏震）全部未开工 |
+| 无障碍 | 1→6 | focus-visible / aria / ≥46px 命中区 / reduced-motion（DOM 与画布内脉冲都尊重）已备；未做整机键盘走查 |
 
-## 3. 已落地盘点
+## 2.5 Round 2 增量（fable-sota，对照手游浮岛基建的轻松感）
 
-### Round 1（合并审计）
-- `theme.ts` 插值过渡 + 语义色 + 段长读 constants：已合并生效。
-- `menus.ts` 内联帮助 / 统计格 / Enter 全场景 / 自动聚焦：已合并生效。
-- `hud.ts` 连击 pop / 速度条 / 主题徽章 / 心形 HP：已合并生效。
-- `session.ts` 去硬编码色值：已完成，`rg "#[0-9a-fA-F]{6}" src/session.ts` 零命中。
-- 受击屏震（session 读 `Motion.kick` → `kickCamera`）、金币连击音调上行（`coinStep`）：已落地。
+Round 1 结束后 session 已接线 HUD/菜单主链路；本轮补的是「危险也不吓人」的
+预警层——手游基建里风暴/饥荒从来不是 jump scare，是提前几秒的柔和布告。
 
-### Round 2（合并审计，对照 ROUND2_BRIEF）
-- **关卡流式生成**：双 LCG 游标续生，分块与一次生成一致；长局探针 `worldEmptyAhead: false`。
-- **主题循环**：`themeIndex` 取模 + `themeCycleAt` 跨圈混色，圈与圈之间也是渐变。
-- **失败链路**：弯道甩出滑道（`slip`/`offChute`）、擦边计时（`fallT`）、落水 `fallen`；
-  玩家侧暴露 `offChute01`（0..1 落水计时进度）给任何想预警的模块。
-- **泡沫透视对齐**（R1 简报缺陷 6 / 原 P0-3）：`drawFoam` 改经 `project`，浪线不再横贯切墙。
-- **泳圈质感**：`drawPlayerRing` 高光 / 投影 / 涟漪 / 换道 roll，session 已接线。
-- **音频**：程序化 BGM + 静音拆桥；main.ts 三处 renderOverlay 传 `audio`（原 P1-11 接线完成）。
-- **数值收拢**：`CAMERA`/`FEEL` 建组，session 已接入；camera/physics/player 仍留内联副本（见 §4）。
-- **循环加固**：先预约再 tick，tick 抛错不再卡死 rAF；dispose 后 start 拒绝。
+**本轮加了什么（全部走可选字段，session 未传时零变化、零崩溃）：**
 
-### Round 3（本轮 fable-sota 交付）
-- **`src/ui/hud.ts` 跨局重置**（ROUND2_BRIEF 风险 4）：模块级动画状态（连击弹跳 / 掉血脉冲时间戳）
-  新增两道防线——导出 `resetHud()` 供开局显式调用；`drawHud` 同时监测 `distance` 回退
-  （一局内单调递增，回退必是新局）自动清一次。两者幂等，未接线也不再串场。
-- **`src/ui/hud.ts` 甩出预警**：`HudInfo.offChute01?`（读 `Player.offChute01`）驱动两级预警——
-  轻度只在屏幕两侧染 danger 渐变雾（静止、无闪烁），计时过 0.12 后顶部中央淡入警示胶囊
-  （警示三角 + 「即将甩出滑道！」+ 落水计时条）。胶囊贴上缘、雾只染边缘，不进画布中线
-  ±120px 带、不遮滑道；呼吸脉冲在 `prefers-reduced-motion` 下关闭（matchMedia 有 node 守卫）。
-- 接线需求（session/main 各一行，不在本轮写集内）：见 §6。
+- `HudInfo` 新增三个可选字段：`storm01?`（风暴预警 0..1）、`starve01?`
+  （断供宽限消耗 0..1）、`hintDanger?`（一句危险短提示）。
+- **风暴预警层** `drawAlerts`（drawHud 内最先画，辉光垫在面板下）：
+  - 顶缘珊瑚辉光：呼吸脉冲 + 偶发「闪电感」短促提亮（双频正弦相乘做随机感，
+    零 RNG 可复现）；`prefers-reduced-motion` 下恒定不闪。
+  - 顶部中央预警条胶囊：闪电图标 + 分段轻松文案（「远处乌云在集合」→
+    「风暴在攒劲儿，扶稳」）+ storm01 进度条；随 storm01 缓入。
+  - 全部贴顶缘（y ≤ 92 < 浮岛网格上沿 96），中央舞台零遮挡。
+- **岛民饿态**：`fed < total` 或 `starve01 > 0.4` 时小人珊瑚色 + 柔和呼吸，
+  胶囊下淡入「肚子咕咕叫，快补点水粮」（覆盖断水/断粮两路，语气松弛）；
+  `starve01 > 0` 时胶囊底部一条珊瑚「宽限余量」细条（1−starve01，静态不闪）。
+- **危险短提示胶囊**：`hintDanger` 顶部中央珊瑚点 + 文案（风暴条下方顺排），
+  宽度按文本估算（不依赖 measureText，stub ctx 单测安全）。
+- **建造栏空选中引导**：slots 全未 selected 时提示行换成潟湖青
+  「先按 1–5 挑个建筑 · 点海面放置」并轻呼吸；选中后回到调用方 hint。
+  花费不够的半透明 + 珊瑚花费保持 Round 1 原样。
 
-## 4. 必修清单（Round 3 剩余，按优先级）
+**还缺什么（给下轮 / 父调度器）：**
+
+- session 侧接线（见 §5 更新版）：`stormWarnRatio` 已传海面但没传 HUD；
+  `starve01` 直接用 `economy.starve / STARVE.limitS`（现成状态，不用改 sim）。
+- 海盗方向预告没做：`hintDanger` 只有文案位，屏幕对应边缘的方向雾/箭头
+  还缺（P1 §4-5 仍欠）。
+- 建造栏鼠标点选（hitTestBuildBar）仍欠；触屏拇指目标未放大。
+- 结算数字滚动、新纪录彩带、岛民表情（P2）未动。
+
+## 2.6 Round 3 增量（fable-sota，小步打磨——预警层已接线，不重写）
+
+session 已把 storm01 / starve01 / hintDanger 全部接上（src/session.ts draw()
+末尾），本轮只磨真实别扭处 + 留一个下轮接线位。
+
+**预警层打磨（hud.ts，全部 surgical）：**
+
+- 危险短提示胶囊不再整体抖 alpha：出现瞬间 0.25s 淡入（文案变化会重新淡入），
+  之后胶囊本体恒定、只有珊瑚点轻呼吸——布告不该闪。reduced-motion 下全静止。
+- `drawAlerts` 补上与其他三分件一致的 `syncHudState` 调用：单独调用
+  （分阶段接线 / stub ctx 单测）时淡入状态同样正确。
+- **新可选字段 `placeHint?: string`**（session 下一轮才传；不传不画、逐帧行为
+  与 Round 2 一致）：放置被拒短句，文案直接用 sim/rules 现成的
+  `placeHint(reason)`（「得贴着木筏放」「材料不够」…）。画在建造栏上方提示行，
+  珊瑚色 + 出现瞬间轻弹（复用资源 pop 曲线）。提示行三级优先：
+  placeHint > 空选中「先按 1–5」引导 > 调用方 hint。新状态已进 resetHud。
+- 弃权说明：风暴条 / 辉光 / 饿态本轮实测代码路径无别扭，未动——避免重写。
+
+**菜单 / CSS（只修真实别扭处，共三处）：**
+
+- **结算 350ms 落定期**（menus.ts）：死亡瞬间玩家往往还按着空格捞取或连点海面，
+  面板一出焦点就落在「再来一局」上，原生 Space/Enter/点击会在看清结算前误触重开。
+  gameover 的再来一局 / 回标题 / Enter 在落定期内不响应；
+  标题、暂停面板不受影响（Enter 秒响应是刻意保留的）。
+- kbd 键帽文字居中（index.css）：帮助面板整体左对齐，键帽里的「W」原来贴左边框。
+- 面板细滚动条（index.css）：帮助展开 + 矮屏时原生粗滚动条压 22px 圆角，
+  换 `scrollbar-width: thin` + 透明轨道。
+
+**仍缺什么（给下轮 / 父调度器）：**
+
+- **浏览器实机手感未走查**：三轮验证全是 tsc / node:test / vite build / 无头
+  probe，没有一次真浏览器 devserver 键鼠走查。预警层实际观感（辉光强度、
+  胶囊节奏）、held-space 防误触、Enter 全链路需要实机确认，最好留一份录屏。
+- **Pages 还是旧滑道**：`.github/workflows/pages.yml` 只在 push main 时部署，
+  本分支（agent/crazy-sea-world）未合并前线上永远是旧构建。要么合并进 main，
+  要么给 workflow 加分支输入再手动 dispatch（workflow 文件不在本席位写集内）。
+- placeHint 接线：session 侧一行状态 + 一行传参，见 §5 更新版。
+- 继承 Round 2 未动清单：海盗方向预告（屏幕边缘方向雾/箭头）、建造栏鼠标点选
+  `hitTestBuildBar`、结算数字滚动 / 新纪录彩带、岛民表情。
+
+## 3. 本轮必做（fable-sota 写集：SOTA_BAR / src/ui/** / index.css）
+
+- [x] **P0 `src/ui/menus.ts`**：title / paused / gameover 三面板，中文；标题「疯狂水世界」+
+      副标「海上末日 · 拾荒建造」；结算含存活天数（highlight）；静音按钮 + M 键；
+      Enter 快捷路径；内联玩法说明；`gameoverCopy` 导出供单测。
+- [x] **P0 `src/ui/hud.ts`**：`drawHud` 聚合 + `drawResourceBar` / `drawDayBadge` /
+      `drawBuildBar` 三分件；资源入账弹跳、换天弹跳、低量脉冲；`resetHud` 跨局清态
+      （day 回退自愈兜底）；全字段可选、分阶段接线不炸；Node 可安全 import。
+- [x] **P0 `src/index.css`**：阳光浮岛基调重制——晨光背景、暖阳标题、木牌主按钮、
+      珊瑚危险色、统计格 highlight、胶囊/kbd/帮助面板/静音按钮/reduced-motion 全套。
+- [x] **P0 布局红线**：HUD 贴边，画面中央永不遮挡（资源左上 / 天数右上 / 建造栏底中）。
+
+## 4. 后续轮次待办（按优先级，给下轮 fable-sota / 父调度器）
 
 ### P0（不修不算 SOTA）
-1. ~~`session.ts` 去硬编码色值~~ ✅ R1 完成。
-2. ~~玩家泳圈质感（高光 / 投影 / 涟漪）~~ ✅ R2 `src/ui/tube.ts` 完成并接线。
-3. ~~水面 / 泡沫与滑道透视对齐~~ ✅ R2 完成（`drawFoam` 经 `project` 投影 + `FOAM_HALF` 夹紧）。
-4. **受击 hitstop 40–60ms**：`FEEL.hitstopS`（0.05s）仍无消费方；入口在 `session.update` 的
-   `hurt()` 分支或 loop 层。屏震已有，缺命中短停。
-5. ~~流式关卡 + 主题循环~~ ✅ R2 完成（`themeIndex` 取模 + `themeCycleAt`；长局探针不再空）。
-6. **HUD 预警 / 重置接线**（父调度器，2 行）：本轮 UI 侧已就绪，见 §6。未接线时预警不显示
-   （`offChute01` 缺省 0）、重置靠距离回退自愈，均不会出错，但预警是失败预兆链路的最后一环。
-7. **camera/physics/player 改读 `CAMERA`/`FEEL` 并删内联副本**（ROUND2_BRIEF 风险 2）：
-   双份真相是数值漂移的温床；迁移数值一致、行为无损。
+1. **接线**（session/main，父调度器，见 §5）：HUD 与菜单没接线前全部不可见。
+2. 建造栏点选支持（鼠标点格子 = 按数字键）：需要 input 侧把点击坐标透出，
+   HUD 侧可加 `hitTestBuildBar(x, y): number | null`——下轮补。
+3. 捞取反馈闭环：漂浮物入账瞬间世界侧水花（fx）+ HUD 数字 pop 同帧发生。
 
 ### P1（强烈建议）
-8. 加速带速度线 / 边缘径向模糊感（`fx/particles.ts` 已有 `spark` 线型粒子可复用，别上真模糊）。
-9. 金币收集飞向分数面板的吸附拖尾；水环穿越全屏一帧闪光（约 8% 白色叠加）。
-10. ~~连击音调上行~~ ✅ R1（`coinStep`）。
-11. ~~换道泳圈 roll 倾斜~~ ✅ R2（`ringRoll`）。
-12. ~~轻量 BGM 层~~ ✅ R2（程序化 BGM，与静音同门控）。
-13. ~~静音接线~~ ✅ R2（main.ts 三处 renderOverlay 已传 `audio`）。
-14. 远离玩家的实体扫尾回收（ROUND2_BRIEF 风险 5）：数组只增不删，10 万距离仍便宜但不该裸奔。
-15. `themeAt`（钳制）与 `themeCycleAt`（循环）双路径对齐或文档标明前者废弃
-    （ROUND2_BRIEF 风险 1）：新绘制一律走 cycle。
-16. 刷新 BENCH.md 快照（长局不再空）；真实浏览器画布 60fps / GPU 填充率实测。
+4. 断粮倒计时可视化：食物条空后在天数徽章下淡入「断粮 N 秒」珊瑚胶囊（不闪）。
+5. 风暴 / 海盗来袭预告：屏幕对应边缘柔和珊瑚雾 + 方向箭头，复用轻松基调。
+6. 结算数字滚动动画；新纪录徽章入场彩带（CSS 即可）。
+7. 触屏布局：建造栏格子放大为拇指目标（≥ 56px），左下虚拟摇杆区域预留。
 
 ### P2（锦上添花）
-17. 触屏虚拟提示：首次触屏 3 秒内显示左右半屏点按区域示意。
-18. 结算数字滚动动画（CSS 或 rAF 计数）。
-19. 主题徽章在段切换瞬间闪一次 accent 光。
-20. BGM 随主题段变奏（换和弦垫即可）。
+8. 天数徽章日落变奏：dayProgress01 > 0.75 时太阳换暖橙、弧变月白。
+9. 岛民胶囊表情：喂饱笑脸 / 挨饿囧脸（两条路径的嘴角弧线）。
+10. 标题面板背后海面视差（等 opus-content 海面落地）。
 
-## 5. 验收 rubric（Round 3 结束时逐项打勾）
-
-- [x] `npm install && npm test && npm run build` 全绿（本轮提交时验证）。
-- [ ] 一局跑满 2000m：天空 / 水色在 410–500、910–1000、1410–1500 区间可见渐变，无任何硬切帧；
-      跑满一圈（2000）后混回热带港同样无硬切。
-- [x] `rg "#[0-9a-fA-F]{6}" src/session.ts src/world src/entities` 无 gameplay 硬编码色
-      （HUD/theme 定义处除外；world 剩天空 / 剪影装饰色，属主题定义延伸）。
-- [ ] 受击瞬间可感知屏震 + 心形脉冲 + hitstop；帧率仍 ≥ 55fps。
-- [ ] 标题 → Enter 开始 → P 暂停 → Enter 继续 → 撞死 → Enter 再来一局，全程无鼠标可玩。
-- [ ] 再来一局的第一帧：无上一局残留的连击弹跳 / 掉血脉冲 / 甩出预警（跨局重置生效）。
-- [ ] 贴墙滑过弯道：两侧先见 danger 雾，计时过约 1/8 后见「即将甩出滑道！」胶囊与计时条；
-      回到水道后预警随 `fallT` 回落淡出；预警全程不进画布中线 ±120px 带。
-- [ ] Tab 遍历所有按钮均有可见焦点环；按钮命中区 ≥ 44px（含静音按钮）。
-- [ ] `prefers-reduced-motion: reduce` 下无面板动画、无徽章脉冲、甩出胶囊无呼吸脉冲。
-- [ ] 泳圈：贴水可见涟漪扩散，跳起涟漪淡出、影子变小，换道有倾斜，无敌泛 accent 呼吸光。
-- [ ] 静音按钮点击 / M 键切换后，金币音效与 BGM 立即无声；`aria-pressed` 同步。
-
-## 6. 接线交接（给父调度器）
-
-本轮 HUD 侧已就绪，差两行接线（`src/session.ts` / `src/main.ts` 不在本轮写集内）：
+## 5. 接线交接（给父调度器；session.ts / main.ts 不在本轮写集内）
 
 ```ts
-// 1) src/session.ts — draw() 末尾的 drawHud 调用加一个字段：
+// 1) src/session.ts — draw() 末尾（世界画完后叠 HUD）：
+import { drawHud } from "./ui/hud";
 drawHud(ctx, {
-  score: this.score,
-  distance: this.distance,
-  combo: this.combo,
-  hp: this.player.hp,
-  theme,
-  speed: this.player.motion.speed,
-  offChute01: this.player.offChute01, // ← 甩出预警数据源
+  day: this.day,                        // 必填，其余全可选
+  dayProgress01: this.dayProgress01,
+  resources: { wood: 12, plastic: 8, metal: 3, rope: 5 }, // 键名对齐 constants.ResourceId
+  water01: this.water / WATER_MAX,
+  food01: this.food / FOOD_MAX,
+  islanders: { fed: 3, total: 4 },
+  build: {
+    slots: [
+      { key: "1", name: "地基", icon: "floor", cost: "木×2", affordable: true, selected: true },
+      { key: "2", name: "收集器", icon: "collector", cost: "木×4 塑×2" },
+      // …purifier / fish / turret
+    ],
+  },
+  time: this.time,                      // 建议传 session 累计秒，动画随暂停冻结
+  // ---- Round 2 新增（全可选，不传 = 不画，行为与 Round 1 一致）----
+  storm01: stormWarnRatio(this.threats),       // 已传海面的同一个值，直接复用
+  starve01: this.economy.starve / STARVE.limitS, // economy 现成状态（import { STARVE } from "./sim/economy"）
+                                               // 或存 updateEconomy 返回的 tick.starveRatio
+  hintDanger: this.threats.pirates.length > 0 ? "海盗盯上木筏了" : undefined,
+  // ---- Round 3 新增（可选；不传不画）----
+  // tryPlaceAt 的拒绝分支先存：this.denied = { text: placeHint(check.reason), at: this.time };
+  placeHint: this.denied && this.time - this.denied.at < 2.5 ? this.denied.text : undefined,
 });
+// HUD 的饿态阈值 >0.4 与 economy 的 STARVE.warnAt = 0.4 对齐，无需换算。
+// placeHint 的文案用 sim/rules 现成的 placeHint(reason)，撤掉时机由 session 掌握
+//（建议拒绝后显示 2–3 秒；HUD 只负责画 + 出现瞬间轻弹）。
 
-// 2) src/main.ts — startRun() 里显式重置（可选但推荐；未接时距离回退自愈兜底）：
+// 2) src/main.ts — 场景切换处：
+import { renderOverlay } from "./ui/menus";
 import { resetHud } from "./ui/hud";
-function startRun(): void {
-  sfx.unlock();
-  resetHud(); // ← 新局清空 HUD 动画状态
-  session = new Session(sfx);
-  // ...
-}
+renderOverlay(overlay, "title", { hiDays, onStart, audio });   // audio 可省
+renderOverlay(overlay, "hidden", { hiDays });                  // 进入 playing
+renderOverlay(overlay, "paused", { hiDays, onResume, onTitle });
+renderOverlay(overlay, "gameover", {
+  hiDays, days, built, salvaged, isNew,
+  endedBy: "starved" | "coreDown",     // 缺省走通用文案
+  onRetry, onTitle,
+});
+// 开新局时：resetHud()（幂等；忘了接也有 day 回退自愈兜底）
 ```
 
-`Player.offChute01` 已存在（entities/player.ts，0..1 落水计时进度），无需改玩家模块。
-`resetHud()` 幂等；即使父级忘记接线，`drawHud` 检测到 `distance` 回退也会自动清一次，
-不会出现跨局串场——接线的价值是把重置时机提前到「新局第一帧之前」，语义更明确。
+导出面（供 gpt-test 写单测）：
+- `menus.ts`：`MenuKind` `AudioControl` `EndReason` `MenuPayload`、
+  `gameoverCopy(p): { title; tag }`、`renderOverlay(root, kind | "hidden", payload)`。
+- `hud.ts`：`ResourceKind` `BuildIcon` `BuildSlot` `HudInfo` `HUD_COLORS`、
+  `resetHud()`、`drawHud(ctx, info)`、`drawResourceBar(ctx, info)`、
+  `drawDayBadge(ctx, info)`、`drawBuildBar(ctx, info)`、
+  `drawAlerts(ctx, info)`（Round 2：storm01 / hintDanger 预警层；
+  Round 3：`HudInfo.placeHint?` 放置被拒短句，画在建造栏提示行）。
+- `gameoverCopy` 纯函数可直接断言；hud/menus 模块 import 无副作用（Node 安全）。
+
+## 6. 验收 rubric（Round 1 结束时逐项打勾）
+
+- [x] `npm test && npm run build && npm run smoke` 全绿（本轮提交时验证）。
+- [ ] 接线后：标题 → Enter 出海 → 捞一件材料见数字 pop → 换天见徽章 pop →
+      P 暂停 → Enter 继续 → 断粮死 → 结算见「存活 N 天」→ Enter 再来一局，全程无鼠标可玩。
+- [ ] 再来一局第一帧无上局残留 pop（`resetHud` 或 day 回退自愈生效）。
+- [ ] 建造栏：选中格抬升亮边；材料不够的格子半透明且花费为珊瑚色。
+- [ ] 淡水 / 食物低于 25% 时条子柔和脉冲；`prefers-reduced-motion` 下静止。
+- [ ] Tab 遍历所有按钮均有可见焦点环；按钮命中区 ≥ 44px（含静音按钮）。
+- [ ] 静音按钮点击 / M 键切换后 `aria-pressed` 同步（音频模块落地后验实际静音）。
+- [ ] HUD 任何元素不进画面中央舞台区（资源左上 / 天数右上 / 建造栏底中贴边）。

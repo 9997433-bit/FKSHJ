@@ -1,38 +1,19 @@
-# Round 2 结论简报
+# Round 2 结论
 
-6 路成果已并入 `agent/crazy-water-world`。验证：`npm test` **34/34**、`smoke`、`probe` 确定性、`build` 通过。长局探针 `worldEmptyAhead: false`。
+六路均已交卷。父调度器已把 HUD 新字段和 `world/craft` 船体接到 `session.ts`。
+`npm test` 8/8，`npm run probe` 仍为 deterministic（`728b59b5`）。
 
-## 相对 Round 1 的演进
+| 角色 | 产出 |
+| --- | --- |
+| fable-arch | `constants.ts` 与 sim 数字对齐；ARCHITECTURE / README 改口「sim 是运行时真相」 |
+| fable-sota | HUD 可选 `storm01` / `starve01` / `hintDanger`；空选中建造提示 |
+| opus-content | `src/world/craft.ts`：`drawSkiff` / `drawPirate(s)`，与涌浪同相 |
+| opus-core | `placeHint`；捞取高亮与 `pickJunk` 同半径；菜单空格不再粘住 `scoopHeld` |
+| gpt-test | headless Session 建造磁带 + `gameoverCopy` |
+| gpt-probe | BENCH 换成接线后实测，探针不再是 not-wired |
 
-| 项 | R1 | R2 |
-| --- | --- | --- |
-| 关卡 | 预生成到 ~7200 后变空 | 双 LCG 游标流式续生，分块与一次生成一致 |
-| 主题 | 卡在霓虹夜 | `themeIndex` 取模循环；`themeCycleAt` 跨圈混色 |
-| 失败 | 仅 HP=0 | 弯道甩出滑道、擦边计时、落水 `fallen` |
-| 换道判定 | `lane` 立刻跳到目标 | 跟随视觉位置，中点翻面 |
-| 泳圈 | 两个椭圆 | `drawPlayerRing` 高光/投影/涟漪 |
-| 音频 | 仅 SFX | 程序化 BGM，静音拆rig，菜单 M 键 |
-| 数值 | 散落魔法数 | `CAMERA`/`FEEL` 已建组，session 已接入 |
-| 循环 | tick 抛错会卡死 rAF | 先预约再 tick；dispose 后 start 拒绝 |
+## 还没做完（Round 3）
 
-## 潜在边界风险
-
-1. `themeAt`（钳制）与 `themeCycleAt`（循环）双路径仍在；新绘制必须走 cycle。
-2. `camera.ts`/`physics.ts`/`player.ts` 仍内联与 `CAMERA`/`FEEL` 同值的副本。
-3. `physics → kickCamera` 耦合未拆。
-4. HUD 模块级动画状态可能跨局泄漏。
-5. 实体数组只增不删；已测到 10 万距离仍便宜，但 Round 3 可扫尾回收。
-6. 探针磁带在新世界种子下会提前死亡（HP=0）；长局探针关碰撞所以仍能跑满。
-7. 真实画布 60fps / GPU 填充仍未测。
-8. 受击顿帧 `FEEL.hitstopS` 尚无消费方。
-
-## SOTA 验收差距（Round 3 冲刺）
-
-- [ ] camera/physics/player 改读 `CAMERA`/`FEEL` 并删内联副本
-- [ ] 受击 hitstop + 加速速度线
-- [ ] HUD `offChute01` 预警、跨局重置
-- [ ] 远离玩家的实体回收
-- [ ] `themeAt` 与循环语义对齐或文档标明废弃
-- [ ] README / SOTA_BAR / ARCHITECTURE 与现网行为对齐
-- [ ] 刷新 BENCH.md 快照（长局不再空）
-- [ ] 浏览器里走一遍标题→再来一局
+- sim / entities 仍持有本地数值副本，未改 import constants
+- 浏览器端到端（捞、建、停、死、再来）未当验收关掉
+- GitHub Pages 仍是旧滑道包，合 `main` 后要重跑 workflow

@@ -1,71 +1,74 @@
-# 疯狂水世界 — Probe / Benchmark Baseline
+# Round 2 基准与确定性探针
 
-Measured on 2026-08-26 with Node.js v22.14.0 on x86_64. Run with:
+## 入口
 
-```sh
+```bash
 npm run bench
 npm run probe
+npm run smoke
 ```
 
-## Microbenchmarks
+`bench` 是无 DOM 的微基准，覆盖三个预期热路径：
 
-Each case gets 3 warmups and 9 measured samples. The budget is checked against the
-median to reduce one-off scheduler and GC noise; p95 is reported for visibility.
+1. **木筏扩张**：从 3×3 木筏开始，以四向邻接 frontier 扩至 2,048 格，测
+   `Set` 查重、邻接候选维护和铺板循环。
+2. **垃圾生成**：固定 xorshift32 种子，持续生成、漂移并原地压缩回收漂浮物数组。
+3. **产消步进**：固定 `1/60 s` 步长推进收集器、净水机、钓鱼台、岛民消耗、
+   资源上限和周期性建造分支。
 
-| Workload | Median | p95 | Budget (median) | Result |
+每项先预热 2 次，再取 7 个样本。预算判定使用中位数，p95 仅用于观察抖动；
+每次运行还校验 workload checksum，避免基准本身意外变成不确定。默认预算如下：
+
+| workload | 单样本工作量 | median 预算 |
+| --- | ---: | ---: |
+| raft-expansion | 12 × (2,048 - 9) 次铺板 | 120 ms |
+| debris-generation | 12,000 帧 | 225 ms |
+| production-consumption-step | 600,000 步 | 80 ms |
+
+慢速或共享 CI 机器可显式设置 `BENCH_BUDGET_MULTIPLIER`，例如
+`BENCH_BUDGET_MULTIPLIER=1.5 npm run bench`。正式基线必须使用默认值，并记录
+Node 版本、CPU、commit 和空闲机器状态。
+
+## 实测基线
+
+以下数据来自 2026-08-26 UTC 在 commit `d24d745` 上的一次 `npm run bench`。
+每项数字是脚本预热 2 次后采集 7 个样本所得的中位数与 p95，并非预算值。运行环境为
+Node `v22.14.0`、4 vCPU Intel Xeon 虚拟机，预算倍数为默认值 `1`。
+
+| 日期 | commit | Node / CPU | raft median / p95 | debris median / p95 | prod-consume median / p95 | 结论 |
+| --- | --- | --- | ---: | ---: | ---: | --- |
+| 2026-08-26 | `d24d745` | Node v22.14.0 / Intel Xeon（4 vCPU） | 9.337 / 13.766 ms | 158.246 / 164.065 ms | 7.852 / 7.940 ms | 3/3 通过 |
+
+对应吞吐量分别为 2,620,656、75,832、76,414,022 ops/s；本轮 workload
+checksum 为 `925273169`。
+
+## Session 确定性探针
+
+`probe-session.ts` 使用种子 `0x5ea52026` 和固定 300 tick 输入磁带。磁带先按住
+`D`、再按住 `W` 开船，随后在开局 3×3 木筏东侧铺两格地基并放置收集器。
+脚本创建两局、以固定 `1/60 s` 步长重放，并逐字节比较按稳定键序列化的状态轨迹。
+不一致时输出首个差异位置并失败。
+
+2026-08-26 实测结果为 `ok: true`、`status: "deterministic"`，种子
+`1587879974`，共推进 300 tick、重放 9 个磁带事件。两局轨迹均为 2,389 bytes，
+稳定哈希为 `728b59b5`。
+
+## Smoke
+
+`npm run smoke` 实测通过，共检查 16 个必需文件。
+
+## Round 3 当前 HEAD 复测
+
+2026-08-26 UTC 在 commit `3da67417de15bc65a290400bdf7045d173ee5c81`
+上使用 Node `v22.14.0` 和默认预算倍数 `1` 依次实跑
+`npm run probe`、`npm run bench`、`npm run smoke`。
+
+| workload | median | p95 | 预算 | 结论 |
 | --- | ---: | ---: | ---: | --- |
-| `generateWorld` × 200 seeds | 1.479 ms | 1.574 ms | ≤ 75 ms | PASS |
-| `stepSpeed` × 200,000 steps | 2.813 ms | 2.831 ms | ≤ 50 ms | PASS |
-| `stepParticles` × 360 particles × 300 frames | 0.391 ms | 0.423 ms | ≤ 75 ms | PASS |
+| raft-expansion | 9.211 ms | 9.550 ms | 120 ms | 通过 |
+| debris-generation | 159.228 ms | 163.834 ms | 225 ms | 通过 |
+| production-consumption-step | 7.885 ms | 7.958 ms | 80 ms | 通过 |
 
-The particle budget is 0.25 ms per simulated frame at the 360-particle gameplay
-cap, leaving most of a 16.67 ms frame for rendering and other systems. The world
-and speed budgets respectively cap average work at 0.375 ms/world and
-0.25 µs/step.
-
-## Deterministic session probe
-
-Run ID `12648430` (`0xc0ffee`) was replayed twice using the same 1,200-frame,
-27-event input tape. Both the replay and long-run probes explicitly construct
-their initial world with `seedWorld(runId, 0)`. Pinning `dateDay` to zero avoids
-the function's boot-day default, so this benchmark fixture does not change
-across calendar days. The complete replay snapshots matched exactly.
-
-| Metric | Value |
-| --- | ---: |
-| Score | 586.233 |
-| Distance | 1191.165 |
-| HP | 0 |
-| Coins / pickups | 12 / 10 |
-| Hazards hit | 3 |
-| Boosters used | 0 |
-| Final speed | 159.013 |
-| Run over | true |
-
-`pickupsTaken` can read lower than `coins` because `recycleBehind` drops
-entities already behind the raft; score and coins are the source of truth.
-
-## Long-run world coverage probe
-
-The same run ID was advanced with neutral steering until it passed 10,000 world
-units. Collision damage was suppressed so the session could not end before the
-coverage measurement.
-
-| Metric | Value |
-| --- | ---: |
-| Target / reached distance | 10000 / 10000.253 |
-| Frames simulated | 8576 |
-| Remaining pickups ahead | 111 |
-| Remaining hazards ahead | 46 |
-| Farthest pickup / hazard z | 17154.400 / 17061.600 |
-| World empty ahead | **false** |
-
-Streaming generation keeps both pickups and hazards ahead of the player beyond
-distance 10,000; the former empty-world condition is no longer present.
-
-## Scope and risks
-
-These are CPU microbenchmarks, not end-to-end frame timings. The particle case
-measures update/removal scanning with 360 live particles; it excludes particle
-spawn and Canvas drawing. Browser rendering, GPU/driver behavior, audio, and
-GC under a full play session still need browser profiling.
+基准汇总为 3/3 通过，workload checksum 为 `925273169`。确定性探针结果为
+`ok: true`、`status: "deterministic"`，probe hash 为 `728b59b5`（300 tick、
+9 个磁带事件、2,389 bytes）。Smoke 检查 16/16 个必需文件并通过。

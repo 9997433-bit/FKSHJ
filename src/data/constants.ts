@@ -1,275 +1,262 @@
 /**
- * 数值表 —— 全游戏唯一数值来源（GAME_SPEC §9）。
+ * 全局数值表（fable-arch 维护；Round 3 已逐项核验与 sim 数字对齐）。
  *
- * 规则：
- * - 改玩法数值只改这里，禁止魔法数扩散到各模块。
- * - 每个字段都应有注释说明含义与规格出处。
- * - 改动会影响手感/计分的字段时，必须同步 src/tests 下对应断言。
+ * 先读这段再改数——本文件的导出分两类：
+ *
+ * 1. 【被运行时消费】CANVAS、LOOP、SAVE_KEY、DAY、SALVAGE。
+ *    改这里就是改游戏。动形状前先查引用：engine/input/hud/rules 吃
+ *    CANVAS，loop 吃 LOOP，save 吃 SAVE_KEY，ocean 吃 DAY，
+ *    junk 吃 SALVAGE 的**每一个键**（含 weights / yields 的元组形状）。
+ *
+ * 2. 【平衡真源】其余全部（TILE、RESOURCE_CAP、START_RESOURCES、
+ *    BUILD_COST、STRUCTURE_HP、PRODUCTION、CREW/UPKEEP/REPAIR/STARVE、
+ *    STORM/WAVE/TURRET、PIRATE、SKIFF）。sim / entities 已改为 import
+ *    这些数；对外仍导出 `TILE = 64`、`RAFT_ORIGIN` 等旧形状，绘制层
+ *    不用跟着改。改平衡改本文件一处即可。
+ *
+ * 约定：
+ * - 单位：长度 = 逻辑像素（CANVAS 坐标系），时间 = 秒。
+ * - 网格全游戏只有一套：格边长 64px、原点在画布正中、格坐标为有符号
+ *   整数（见 TILE 注释）。禁止再发明第二套网格。
+ *
+ * 平衡现状（按 sim 数值算）：什么都不建时，淡水 45 ÷ (3 人 × 0.12/s)
+ * ≈ 125 秒见底，再加 25 秒断粮宽限 ≈ 150 秒结算。首场风暴 50 秒、
+ * 海盗首波 55 秒；开局金属 8 恰好一座炮塔（但净水机也要金属 4，
+ * 二选一，缺口靠捞或击杀海盗补）。
  */
 
-/* ========================================================================
- * 渲染画布（GAME_SPEC §6 视觉底线）
- * 所有绘制模块都工作在 w×h 的「逻辑坐标系」；Engine 负责按 DPR
- * 放大 backing store，绘制代码不需要感知物理像素。
- * ===================================================================== */
-export const CANVAS = {
-  /** 逻辑宽度（px），16:9 */
-  w: 1280,
-  /** 逻辑高度（px） */
-  h: 720,
-  /** devicePixelRatio 上限：>2 的填充成本高、视觉收益极小 */
-  maxDpr: 2,
+// ═══════════════════════════════════════════════════════════════════
+// 一、被运行时消费的数（这里就是真相）
+// ═══════════════════════════════════════════════════════════════════
+
+/** 逻辑画布尺寸与 DPR 上限。所有绘制工作在 w×h 逻辑坐标系（engine.fit 负责换算）。 */
+export const CANVAS = { w: 1280, h: 720, maxDpr: 2 } as const;
+
+/** 主循环帧钳制：单帧模拟时长上限 / 无上一帧时间戳时的兜底 dt（见 loop.ts 契约）。 */
+export const LOOP = { maxDtS: 0.033, fallbackDtS: 0.016 } as const;
+
+/** localStorage 存档键（读写实现在 src/data/save.ts，归 opus-content）。 */
+export const SAVE_KEY = "cww_sea_v1";
+
+/** 昼夜循环（ocean.ts 消费）。相位 = (elapsed / lengthS) mod 1；仅影响视觉与 HUD 报天数。 */
+export const DAY = {
+  /** 一昼夜时长（秒） */
+  lengthS: 120,
+  /** 夜晚占比（相位 ≥ 1 − nightFrac 视为夜） */
+  nightFrac: 0.25,
 } as const;
 
-/* ========================================================================
- * 主循环（src/game/loop.ts 契约）
- * ===================================================================== */
-export const LOOP = {
-  /**
-   * 单帧 dt 上限（秒）≈ 2 帧 @60fps。
-   * 防止切标签页 / GC 卡顿后一次性推进过多物理（隧穿、连击瞬间清零）。
-   */
-  maxDtS: 0.033,
-  /** 首帧与恢复帧的兜底 dt（秒），此时没有上一帧时间戳可差分 */
-  fallbackDtS: 0.016,
+/** 漂浮物：海面随机刷新、缓慢漂流、超时沉没（world/junk.ts 消费全部键）。 */
+export const SALVAGE = {
+  /** 平均刷新间隔（秒） */
+  spawnIntervalS: 2.5,
+  /** 海面同时存在的漂浮物上限 */
+  maxAfloat: 12,
+  /** 漂流速度（逻辑像素/秒） */
+  driftPxS: 12,
+  /** 无人捞取的存活时长（秒），超时沉没 */
+  despawnS: 45,
+  /** 各类漂浮物的刷新权重（归一化前） */
+  weights: { wood: 0.4, plastic: 0.3, metal: 0.2, rope: 0.1 },
+  /** 单件捞取产出区间 [min, max]（整数，含端点） */
+  yields: {
+    wood: [4, 8],
+    plastic: [3, 6],
+    metal: [2, 4],
+    rope: [1, 3],
+  },
 } as const;
 
-/* ========================================================================
- * 车道（GAME_SPEC §4.2：5 车道，换道插值 120–180ms）
- * ===================================================================== */
-export const LANES = {
-  /** 车道总数 */
-  count: 5,
-  /** 最左车道索引 */
-  min: -2,
-  /** 最右车道索引 */
-  max: 2,
-  /** 相邻车道中心距（世界单位） */
-  width: 78,
-  /** 换道插值时长（ms），规格允许区间 120–180 */
-  switchMs: 150,
+// ═══════════════════════════════════════════════════════════════════
+// 二、文档镜像（与 sim 手工同步；运行时不 import 这一段）
+// ═══════════════════════════════════════════════════════════════════
+
+// ── 网格（镜像 sim/rules.ts 的 TILE / RAFT_ORIGIN）──────────────────
+
+/**
+ * 木筏建造网格。
+ * - 格坐标是**有符号整数** (gx, gy)，指挥中心固定在 (0, 0)；
+ *   开局 3×3 即 |gx| ≤ 1 且 |gy| ≤ 1。
+ * - origin 是 (0, 0) 格的**中心**（不是左上角）：
+ *   center = (originX + gx × sizePx, originY + gy × sizePx)，
+ *   换算函数见 sim/rules.ts 的 tileCenter / worldToTile。
+ * - 没有 gridW / gridH：网格无边界，木筏靠四邻接向外扩张。
+ * - 小船活动海域另见 sim/rules.ts SEA_BOUNDS（木筏为中心 1920×1080）。
+ */
+export const TILE = {
+  /** 一格边长（逻辑像素）= sim/rules.ts 的 `TILE` */
+  sizePx: 64,
+  /** (0,0) 格中心 X = 画布正中（= sim 的 RAFT_ORIGIN.x） */
+  originX: CANVAS.w / 2,
+  /** (0,0) 格中心 Y = 画布正中（= sim 的 RAFT_ORIGIN.y） */
+  originY: CANVAS.h / 2,
+  /** 开局木筏边长（格）：正中 3×3，中心格为指挥中心 core */
+  startSize: 3,
 } as const;
 
-/* ========================================================================
- * 玩家泳圈（GAME_SPEC §4.3 / §4.4）
- * ===================================================================== */
-export const PLAYER = {
-  /** 碰撞半径（世界单位） */
-  radius: 28,
-  /** HP 上限 =「泳圈气量」3 点（§4.4） */
-  maxHp: 3,
-  /** 小跳滞空时长（ms），越过可跳障碍 */
-  jumpMs: 420,
-  /** 小跳冷却（ms） */
-  jumpCooldownMs: 520,
-  /** 质量（预留给撞击/漩涡力反馈，目前未接入） */
-  mass: 1,
+// ── 资源（镜像 sim/rules.ts）────────────────────────────────────────
+
+/** 六种资源：前四种是建材（捞/产），后两种是生存消耗品（产/耗）。 */
+export type ResourceId = "wood" | "plastic" | "metal" | "rope" | "water" | "food";
+
+/** 仓储上限（= sim RESOURCE_CAP）。入库超过上限的部分直接丢弃。 */
+export const RESOURCE_CAP: Record<ResourceId, number> = {
+  wood: 99,
+  plastic: 99,
+  metal: 99,
+  rope: 99,
+  water: 100,
+  food: 100,
+};
+
+/**
+ * 开局库存（= sim START_RESOURCES）。够铺一块地基 + 一台产出建筑；
+ * 金属 8 恰好等于一座炮塔的价钱。
+ */
+export const START_RESOURCES: Record<ResourceId, number> = {
+  wood: 14,
+  plastic: 8,
+  metal: 8,
+  rope: 8,
+  water: 45, // 3 岛民 × 0.12/s = 0.36/s → 约 125 秒耗尽
+  food: 45, // 3 岛民 × 0.10/s = 0.30/s → 约 150 秒耗尽
+};
+
+// ── 建筑（镜像 sim/rules.ts 的 BUILDINGS 表）────────────────────────
+
+/** 玩家可放置的建筑 id，顺序即 1–5 快捷键顺序（= sim HOTBAR）。 */
+export type PlaceableId = "floor" | "collector" | "purifier" | "fish" | "turret";
+
+/** 格子上可能站着的东西；`core` 是开局预置的指挥中心，玩家造不出来。 */
+export type BuildingId = PlaceableId | "core";
+
+/**
+ * 建造花费（= sim BUILDINGS[id].cost）。放置是原子的：先 canAfford
+ * 再整体扣，扣不动分文不动（sim/rules.ts pay/place）。
+ */
+export const BUILD_COST: Record<PlaceableId, Partial<Record<ResourceId, number>>> = {
+  floor: { wood: 4, rope: 2 }, // 地基：唯一可铺在海面的建筑，四向贴筏
+  collector: { wood: 6, plastic: 4 }, // 收集器：被动产木板/塑料
+  purifier: { plastic: 6, metal: 4 }, // 净水机：产淡水
+  fish: { wood: 5, rope: 4 }, // 钓鱼台：产食物
+  turret: { metal: 8, wood: 4 }, // 炮塔：唯一对海盗输出
+};
+
+/**
+ * 结构血量上限（= sim BUILDINGS[id].maxHp）。归零即拆除；
+ * core 归零不删格、只标记，由结算判定接手。
+ */
+export const STRUCTURE_HP: Record<BuildingId, number> = {
+  floor: 40,
+  collector: 45,
+  purifier: 45,
+  fish: 40,
+  turret: 65,
+  core: 220,
+};
+
+// ── 产出与消耗（镜像 sim/economy.ts）────────────────────────────────
+
+/**
+ * 建筑产出（= economy PRODUCTION）：**攒满 intervalS 出一次整数货**，
+ * 不是每帧小数流；残血建筑按 efficiencyOf 减速（50%–100%）。
+ */
+export const PRODUCTION: Partial<
+  Record<BuildingId, { intervalS: number; out: Partial<Record<ResourceId, number>> }>
+> = {
+  collector: { intervalS: 5, out: { wood: 1, plastic: 1 } },
+  purifier: { intervalS: 3, out: { water: 3 } }, // 1 水/秒
+  fish: { intervalS: 3, out: { food: 2 } }, // 0.67 食/秒
+};
+
+/** 人口（= economy CREW）：每座存活的非地基建筑多一个岛民（也多一张嘴）。 */
+export const CREW = { base: 3, perBuilding: 1 } as const;
+
+/** 每岛民每秒消耗（= economy UPKEEP）。 */
+export const UPKEEP = { water: 0.12, food: 0.1 } as const;
+
+/** 岛民自动维修（= economy REPAIR）：每 2 秒挑最残的一格，花 1 木板补 9 血。 */
+export const REPAIR = { intervalS: 2, hp: 9, cost: { wood: 1 } } as const;
+
+/**
+ * 断粮（= economy STARVE）：淡水或食物任一没足额供上，**同一条**计时器
+ * 就往上走；喂饱后按 recoverMul 倍速回落。计满 limitS = 结算。
+ */
+export const STARVE = { limitS: 25, recoverMul: 2, warnAt: 0.4 } as const;
+
+// ── 风暴与海盗（镜像 sim/threats.ts 与 entities/pirate.ts）──────────
+
+/**
+ * 风暴（= threats STORM）：预警 warnS 秒后对选定外圈格**一次性**结算
+ * damage；受击格数 = 1 + ⌊elapsed / extraEveryS⌋（上限 maxTargets）；
+ * 场间隔从 gapS 每场缩 gapDecayS，下限 gapMinS。
+ */
+export const STORM = {
+  firstS: 50,
+  gapS: 42,
+  gapMinS: 22,
+  gapDecayS: 3,
+  warnS: 4,
+  damage: 22, // 一场啃不掉满血地基（40），两场可以
+  extraEveryS: 90,
+  maxTargets: 5,
 } as const;
 
-/* ========================================================================
- * 速度模型（GAME_SPEC §4.1：重力+水流自动前进；§4.3 各实体效果）
- * ===================================================================== */
-export const SPEED = {
-  /** 巡航目标速度（世界单位/秒） */
-  base: 280,
-  /** 速度硬上限 */
-  max: 620,
-  /** 滑道重力加速度分量 */
-  gravity: 46,
-  /** 水阻减速度分量 */
-  waterDrag: 18,
-  /** 撞充气障碍/橡皮鸭：速度 ×0.45（§4.3 表） */
-  hitMul: 0.45,
-  /** 加速带倍率 1.6×（§4.3 表） */
-  boostMul: 1.6,
-  /** 加速带持续 1.2s（§4.3 表） */
-  boostMs: 1200,
-  /** 撞滑道边缘掉速系数（§4.2）；player.scrapeWall → physics.applyWallScrape 消费 */
-  wallPenalty: 0.82,
+/**
+ * 海盗波调度（= threats WAVE）：波内人数 min(6, 1 + ⌊波数 / 2⌋)，
+ * 同屏上限 maxAlive；同一波从相近方位来。
+ */
+export const WAVE = {
+  firstS: 55, // 晚于首场风暴，留出攒金属立炮塔的窗口
+  gapS: 46,
+  gapMinS: 22,
+  gapDecayS: 2.5,
+  spawnRadius: 760,
+  maxAlive: 8,
 } as const;
 
-/* ========================================================================
- * 计分（GAME_SPEC §4.5）
- * score = distance*distMul + coins*coin + gems*gem + rings*ring + comboBonus
- * ===================================================================== */
-export const SCORE = {
-  /** 距离折分系数 */
-  distMul: 0.2,
-  /** 金币 +10 */
-  coin: 10,
-  /** 宝石 +50 */
-  gem: 50,
-  /** 水环 +100 */
-  ring: 100,
-  /** 连击超时 1.8s（§4.5） */
-  comboTimeoutMs: 1800,
-  /** 连续无伤收集 15 个实体回 1 HP（§4.4） */
-  healEvery: 15,
+/** 单个海盗（= entities/pirate.ts PIRATE）：速度/血量随波数增长，死后掉金属。 */
+export const PIRATE = {
+  baseSpeed: 58,
+  speedPerWave: 4,
+  maxSpeed: 130,
+  baseHp: 30,
+  hpPerWave: 8,
+  radius: 16,
+  /** 停船开砍的距离（格心到船心）；拆房 4.5 dps */
+  reach: 46,
+  dps: 4.5,
+  /** 被打死掉的金属 */
+  dropMetal: 2,
+  flashS: 0.12,
 } as const;
 
-/* ========================================================================
- * 关卡生成（GAME_SPEC §5：主题段流式拼接，每段 400–600 世界单位）
- * ===================================================================== */
-export const GEN = {
-  /** 主题段长度（世界单位），规格允许区间 400–600 */
-  segmentLen: 500,
-  /** 拾取物纵向间隔 */
-  coinGap: 90,
-  /** 障碍纵向间隔 */
-  obstacleGap: 160,
-  /** 相机可视纵深（世界单位）。levels.ts 的 STREAM_AHEAD = horizon×3：
-   *  开局预生成到该纵深，局中每帧流式续生到玩家前方同样距离（无限世界） */
-  horizon: 2400,
+/** 炮塔（= threats TURRET）：射程内锁最近海盗，单发制。DPS = 9 / 0.5 = 18。 */
+export const TURRET = {
+  /** 索敌与射击半径 = 5 格 = 320 逻辑像素 */
+  range: TILE.sizePx * 5,
+  damage: 9,
+  shotIntervalS: 0.5,
 } as const;
 
-/* ========================================================================
- * 镜头 / 2.5D 投影（GAME_SPEC §6 视觉底线）
- *
- * 接线状态（Round 3 完成）：src/game/camera.ts 全组消费，模块内同值
- * 副本已删；session.draw 另消费 entityCullZ。far 裁剪没有单独字段——
- * 继续用 GEN.horizon，保持单一来源。syncCamera 的怠速摇摆微系数属
- * 每帧纯装饰，有意留在模块内，不值得进数值表。
- * ===================================================================== */
-export const CAMERA = {
-  /** 消失点高度 = 画布高 × 0.18（§6：消失点在画布上方 18%） */
-  horizonFrac: 0.18,
-  /** 近裁剪深度（世界单位）；再近的物体按此深度投影 */
-  near: 40,
-  /** 最远处的投影缩放 */
-  scaleMin: 0.22,
-  /** 由远及近附加的缩放跨度；最近处 s = scaleMin + scaleSpan */
-  scaleSpan: 1.15,
-  /** 屏幕 y 随纵深的非线性指数，>1 时近处行进更快 */
-  depthCurve: 1.15,
-  /** 最近平面距画布底边的留边（px），给玩家/水花留出画面 */
-  bottomPad: 70,
-  /** 快弯振幅（世界单位） */
-  bendFastAmp: 26,
-  /** 慢弯振幅（世界单位） */
-  bendSlowAmp: 12,
-  /** 快弯角频率（rad/世界单位） */
-  bendFastFreq: 0.004,
-  /** 慢弯角频率（rad/世界单位） */
-  bendSlowFreq: 0.0011,
-  /** 慢弯相位（rad） */
-  bendSlowPhase: 1.7,
-  /** 读作「满倾斜过弯」的弯道斜率，chuteBank 用它归一到 -1..1 */
-  bankFull: 0.12,
-  /** 撞击震动每秒衰减量 */
-  shakeDecay: 3.4,
-  /** 实体绘制远裁剪（世界单位）；比 GEN.horizon 近，远处实体小于 1px 无意义 */
-  entityCullZ: 1800,
+// ── 拾荒小船（镜像 entities/skiff.ts 的 SKIFF）──────────────────────
+
+/**
+ * 小船手感（= entities/skiff.ts SKIFF）。WASD 给加速度，
+ * 水阻 v ×= e^(−drag·dt)，与帧长无关。
+ */
+export const SKIFF = {
+  /** 满推力加速度（逻辑像素/秒²） */
+  accel: 1150,
+  /** 水阻系数（速度每秒衰减到 e^−drag） */
+  drag: 2.6,
+  maxSpeed: 300,
+  /** 船体半径，画图与碰撞共用 */
+  radius: 15,
+  /** 捞取判定半径 = 一格半 = 96 逻辑像素 */
+  scoopRadius: TILE.sizePx * 1.5,
+  /** 两次捞取的最小间隔（秒） */
+  scoopCooldownS: 0.22,
+  /** 低于此速度直接判停 */
+  restSpeed: 3,
 } as const;
-
-/* ========================================================================
- * 手感 / 判定（速度趋近、carve 掉速、判定窗口、反馈强度）
- *
- * 接线状态（Round 3 全部完成）：
- * 1) 速度模型 —— src/game/physics.ts 消费；
- * 2) 玩家操控 —— src/entities/player.ts 消费（collision.sameLane 的
- *    默认容差也读 laneTol，与会话判定同源）；
- * 3) 会话判定 —— src/session.ts 消费（Round 2 接线）。
- * 单一来源规则不变：谁消费谁只读这里，禁止模块内再留同值副本；
- * 新字段必须与消费方同一提交入表，禁止堆无人消费的镜像值。
- * 甩出滑道几何与计时（原 physics 内联）已入本组第 5 节；
- * 镜头冲击由 apply* 写入 Motion.kick，session 再转发给 kickCamera。
- * ===================================================================== */
-export const FEEL = {
-  /* —— 1) 速度模型（physics.ts）—— */
-  /** 速度硬下限（世界单位/秒）；撞击后也不会慢于此 */
-  minSpeed: 90,
-  /** 低于巡航时的每秒趋近率：爬升要积极 */
-  approachRise: 0.95,
-  /** 高于巡航时的每秒趋近率：滑落要慵懒 */
-  approachFall: 0.62,
-  /** 原始整定趋近率；坡度-水阻平衡点 slopeLift 由它折算 */
-  settleRate: 0.35,
-  /** 加速包络起势时长（秒） */
-  boostAttackS: 0.12,
-  /** 加速包络泄力时长（秒） */
-  boostReleaseS: 0.3,
-  /** 满 carve 时从巡航速度上削掉的量 */
-  bankLoss: 70,
-  /** carve 期间额外的趋近率加成 = 更快贴向掉速后的巡航 */
-  bankScrub: 0.55,
-  /* —— 2) 玩家操控（player.ts）—— */
-  /** 跳跃预输入窗口（秒）：冷却结束前按下仍会起跳 */
-  jumpBufferS: 0.13,
-  /** 换道贡献的 carve 权重 */
-  switchCarve: 0.8,
-  /** 滑道自身弯度贡献的 carve 权重 */
-  chuteCarve: 0.45,
-  /** 滞空时 carve 折减：空中没有水可刮 */
-  airCarve: 0.25,
-  /** 小跳最大抬升（屏幕 px @ 单位缩放） */
-  hopLiftPx: 34,
-  /** 顶着边墙持续转向时的刮墙掉速冷却（秒） */
-  wallScrapeCdS: 0.45,
-  /** 受击后无敌时长（秒） */
-  hurtInvulnS: 0.85,
-  /* —— 3) 会话判定（session.ts）—— */
-  /** 世界推进比例：speed × dt × worldScale = Δdistance（世界单位） */
-  worldScale: 0.2,
-  /** 玩家泳圈锚定深度 z（世界单位）；碰撞判定与绘制共用，漂移会导致
-   *  「看着没撞却判撞」，必须走同一常量 */
-  playerAnchorZ: 80,
-  /** 拾取判定窗口：实体相对玩家 z 在 [min, max] 内才进入窄相 */
-  pickupZMin: -20,
-  pickupZMax: 220,
-  /** 障碍判定窗口 */
-  hazardZMin: -20,
-  hazardZMax: 180,
-  /** 加速带判定窗口 */
-  boostZMin: -10,
-  boostZMax: 140,
-  /** 普通实体的同车道容差（车道单位） */
-  laneTol: 0.35,
-  /** 漩涡吸入的加宽容差：相邻半条车道也会被吸（§4.3 Vortex） */
-  vortexLaneTol: 0.85,
-  /** 漩涡减速倍率（§4.3：吸入相邻车道，减速） */
-  vortexSlowMul: 0.7,
-  /** 水环短暂无敌时长（秒，§4.3 Ring） */
-  ringInvulnS: 0.6,
-  /* —— 4) 反馈强度（apply* 写入 Motion.kick，session 转 kickCamera）—— */
-  /** 撞障碍的镜头冲击力（applyHit） */
-  hitKick: 0.9,
-  /** 刮墙的镜头冲击力（applyWallScrape） */
-  wallKick: 0.35,
-  /** 吃加速带的镜头冲击力（applyBoost） */
-  boostKick: 0.22,
-  /** 受击顿帧时长（秒，40–60ms 取中）。applyHit 记账到 Motion.hitstopLeft，
-   *  session.update 每帧经 takeHitstop 先扣掉冻结量再推进世界（R3 接线） */
-  hitstopS: 0.05,
-  /* —— 5) 滑道截面 / 甩出（physics.ts + track.ts + player.ts）—— */
-  /** 水面半宽（车道单位）：再往外就是墙沿，offChute 开始计时 */
-  chuteFloor: 2.85,
-  /** 墙沿半宽（车道单位）；track 画的边必须等于这个数 */
-  chuteWall: 3.3,
-  /** 满倾斜过弯时向外滑出的最大车道数 */
-  slipMax: 1.05,
-  /** 弯道仍能兜住的倾斜阈值；超过才开始向外甩 */
-  slipHold: 0.45,
-  /** 平地板把泳圈交给墙沿的车道位置 */
-  rimLane: 1.4,
-  /** 滑出量每秒趋近目标的速率 */
-  slipRate: 3.4,
-  /** 滞空时甩出倍率：空中没有水再往墙上推 */
-  airSlip: 0.2,
-  /** 离开水流后多久算落水（秒，GAME_SPEC §4.4） */
-  fallTimeS: 1.5,
-  /** 回到水面上时落水计时的回退倍率 */
-  fallRecover: 1.8,
-} as const;
-
-/* ========================================================================
- * 存档（GAME_SPEC §4.5：localStorage 最高分）
- * ===================================================================== */
-export const SAVE_KEY = "cww_hiscore_v1";
-
-/* ========================================================================
- * 主题（GAME_SPEC §5：四主题按距离依序出现）
- * 色值本体在 src/ui/theme.ts，这里只定 id 与顺序。
- * ===================================================================== */
-export type ThemeId = "tropical" | "cave" | "volcano" | "neon";
-
-export const THEME_ORDER: ThemeId[] = ["tropical", "cave", "volcano", "neon"];

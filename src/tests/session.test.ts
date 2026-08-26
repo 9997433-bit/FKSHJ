@@ -1,121 +1,47 @@
 import assert from "node:assert/strict";
-import { beforeEach, describe, it } from "node:test";
-import { SAVE_KEY, SCORE } from "../data/constants";
-import { loadSave } from "../data/save";
-import { makePickup } from "../entities/collectible";
-import type { Sfx } from "../fx/audio";
+import { describe, it } from "node:test";
 import { Session } from "../session";
 
-const values = new Map<string, string>();
-const localStorageMock: Storage = {
-  get length() {
-    return values.size;
-  },
-  clear() {
-    values.clear();
-  },
-  getItem(key) {
-    return values.get(key) ?? null;
-  },
-  key(index) {
-    return [...values.keys()][index] ?? null;
-  },
-  removeItem(key) {
-    values.delete(key);
-  },
-  setItem(key, value) {
-    values.set(key, String(value));
-  },
-};
+const SEED = 0x5ea5_2026;
 
-Object.defineProperty(globalThis, "localStorage", {
-  configurable: true,
-  value: localStorageMock,
-});
+describe("headless Session", () => {
+  it("produces the same snapshot for the same seed", () => {
+    const first = new Session({ seed: SEED, headless: true });
+    const second = new Session({ seed: SEED, headless: true });
 
-const silentSfx = {
-  boost: () => {},
-  coin: () => {},
-  gem: () => {},
-  ring: () => {},
-  hit: () => {},
-  jump: () => {},
-} as unknown as Sfx;
+    first.update(1 / 60);
+    second.update(1 / 60);
 
-describe("Session scoring", () => {
-  beforeEach(() => localStorage.clear());
-
-  it("scores canned updates and pickups without a DOM", () => {
-    const sounds: string[] = [];
-    const sfx = {
-      boost: () => sounds.push("boost"),
-      coin: () => sounds.push("coin"),
-      gem: () => sounds.push("gem"),
-      ring: () => sounds.push("ring"),
-      hit: () => sounds.push("hit"),
-      jump: () => sounds.push("jump"),
-    } as unknown as Sfx;
-    const session = new Session(sfx, 123);
-    session.world = {
-      pickups: [makePickup("coin", 0, 80), makePickup("gem", 0, 110)],
-      hazards: [],
-      boosters: [],
-    };
-
-    const inputs: Array<[dt: number, steer: -1 | 0 | 1, jump: boolean]> = [
-      [0.1, 0, false],
-      [0.1, 1, true],
-      [0.2, -1, false],
-    ];
-    for (const input of inputs) session.update(...input);
-
-    const pickupScore = SCORE.coin + SCORE.gem + 24;
-    assert.equal(session.coins, 1);
-    assert.equal(session.combo, 4);
-    assert.deepEqual(sounds, ["coin", "gem", "jump"]);
-    assert.ok(Math.abs(session.score - (session.distance * SCORE.distMul + pickupScore)) < 1e-9);
-
-    const result = session.result();
-    assert.equal(result.hiScore, Math.floor(session.score));
-    assert.equal(result.isNew, true);
-    assert.equal(result.fallen, false);
-    const saved = loadSave();
-    assert.equal(saved.hiScore, Math.floor(session.score));
-    assert.equal(saved.hiDistance, Math.floor(session.distance));
-    assert.equal(saved.totalCoins, session.coins);
-    assert.equal(saved.runs, 1);
-    assert.ok(saved.lastRunAt > 0);
+    assert.deepEqual(first.snapshot(), second.snapshot());
   });
 
-  it("marks a new record only when the score beats the previous high score", () => {
-    localStorage.setItem(
-      SAVE_KEY,
-      JSON.stringify({ hiScore: 500, hiDistance: 1000, lastRunAt: 1, runs: 2, totalCoins: 7 }),
-    );
+  it("plays a build tape through floor and collector placement", () => {
+    const session = new Session({ seed: SEED, headless: true });
+    const beforeFloor = session.snapshot();
+    const woodBeforeFloor = session.res.wood;
+    const ropeBeforeFloor = session.res.rope;
 
-    for (const score of [499, 500]) {
-      const session = new Session(silentSfx, score);
-      session.score = score;
-      const result = session.result();
-      assert.equal(result.isNew, false);
-      assert.equal(result.hiScore, 500);
-    }
+    session.applyProbeAction({ kind: "select-build", buildingId: "floor" });
+    session.applyProbeAction({ kind: "place-build", gridX: 2, gridY: 0 });
 
-    const winner = new Session(silentSfx, 501);
-    winner.score = 501;
-    const result = winner.result();
-    assert.equal(result.isNew, true);
-    assert.equal(result.hiScore, 501);
+    assert.equal(session.snapshot().tiles, beforeFloor.tiles + 1);
+    assert.ok(session.res.wood < woodBeforeFloor);
+    assert.ok(session.res.rope < ropeBeforeFloor);
+
+    const builtBeforeCollector = session.built;
+    session.applyProbeAction({ kind: "select-build", buildingId: "collector" });
+    session.applyProbeAction({ kind: "place-build", gridX: 2, gridY: 0 });
+
+    assert.equal(session.built, builtBeforeCollector + 1);
   });
 
-  it("reports a washout separately from a deflated tube", () => {
-    const washed = new Session(silentSfx, 7);
-    washed.player.fallen = true;
-    washed.player.hp = 0;
-    assert.equal(washed.result().fallen, true);
+  it("rejects a diagonal-only floor placement", () => {
+    const session = new Session({ seed: SEED, headless: true });
+    const tilesBefore = session.snapshot().tiles;
 
-    const popped = new Session(silentSfx, 8);
-    popped.player.hp = 0;
-    assert.equal(popped.result().fallen, false);
+    session.applyProbeAction({ kind: "select-build", buildingId: "floor" });
+    session.applyProbeAction({ kind: "place-build", gridX: 2, gridY: 2 });
+
+    assert.equal(session.snapshot().tiles, tilesBefore);
   });
 });

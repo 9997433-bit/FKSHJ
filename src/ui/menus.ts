@@ -1,6 +1,12 @@
+/**
+ * DOM 菜单面板（fable-sota，Round 3）：title / paused / gameover，全中文。
+ * 基调：末世但不丧——文案带点摸鱼的松弛感，结算永远给「再来一局」的钩子。
+ * 面板样式在 src/index.css；session/main 由父调度器接线（见 SOTA_BAR §6）。
+ */
+
 export type MenuKind = "title" | "paused" | "gameover";
 
-/** 静音开关挂钩：菜单只负责渲染与键位，音频实例由调用方持有。 */
+/** 静音开关挂钩：菜单只负责渲染与 M 键，音频实例由调用方持有。 */
 export type AudioControl = {
   /** 渲染面板时的静音初始状态。 */
   muted: boolean;
@@ -8,43 +14,62 @@ export type AudioControl = {
   onToggle: () => boolean;
 };
 
+/** 结算死因（GAME_SPEC §2）：断粮 vs 指挥中心被拆。 */
+export type EndReason = "starved" | "coreDown";
+
 export type MenuPayload = {
-  hiScore: number;
-  score?: number;
-  distance?: number;
-  coins?: number;
+  /** 历史最长存活天数（标题钩子 + 结算对照）。 */
+  hiDays: number;
+  /** 本局存活天数（结算必填）。 */
+  days?: number;
+  /** 本局盖了几座建筑。 */
+  built?: number;
+  /** 本局捞了几件漂浮物。 */
+  salvaged?: number;
+  /** 本局是否刷新最长存活纪录。 */
   isNew?: boolean;
+  /** 结算死因；缺省用通用文案。 */
+  endedBy?: EndReason;
   onStart?: () => void;
   onResume?: () => void;
   onRetry?: () => void;
   onTitle?: () => void;
   /** 提供后面板右上角出现静音按钮，并在面板打开期间绑定 M 键。 */
   audio?: AudioControl;
-  /** 结算死因：落水 vs 撞瘪。缺省保持旧文案。 */
-  endedBy?: "washout" | "deflated";
 };
 
-export function gameoverCopy(p: Pick<MenuPayload, "isNew" | "endedBy">): { title: string; tag: string } {
-  if (p.endedBy === "washout") {
+/** 结算标题与副文案。导出便于单测覆盖所有死因分支。 */
+export function gameoverCopy(p: Pick<MenuPayload, "isNew" | "endedBy">): {
+  title: string;
+  tag: string;
+} {
+  if (p.endedBy === "starved") {
     return {
-      title: p.isNew ? "载入史册" : "冲出滑道",
-      tag: p.isNew ? "甩进水里也创了纪录" : "离心力把泳圈甩进了水里",
+      title: p.isNew ? "饿着肚子创了纪录" : "锅底刮干净了",
+      tag: p.isNew ? "下次先把钓鱼台盖起来" : "岛民们决定去别的木筏碰碰运气",
     };
   }
-  if (p.endedBy === "deflated") {
+  if (p.endedBy === "coreDown") {
     return {
-      title: p.isNew ? "载入史册" : "气漏光了",
-      tag: p.isNew ? "气漏光了，但分数留了下来" : "橡皮鸭和漩涡把泳圈撞瘪了",
+      title: p.isNew ? "沉船前留下了传说" : "指挥中心进水了",
+      tag: p.isNew ? "海盗抢得走木板，抢不走纪录" : "下次让炮塔先说话",
     };
   }
   return {
-    title: p.isNew ? "载入史册" : "冲上岸了",
-    tag: "CRAZY WATER WORLD · 本局结算",
+    title: p.isNew ? "载入史册" : "这一程到此为止",
+    tag: "疯狂水世界 · 本局结算",
   };
 }
 
 /** 上一个菜单挂的全局键盘监听，重渲染 / 隐藏时移除，避免泄漏与重复触发。 */
 let disposeKeys: (() => void) | null = null;
+
+/**
+ * 结算面板落定期（毫秒）：死亡瞬间玩家往往还按着空格（捞取）或在连点海面，
+ * 面板一出焦点就在「再来一局」上，原生 Space/Enter/点击会在看清结算前误触重开。
+ * 这段时间内结算按钮不响应；只挡 gameover——标题/暂停的 Enter 秒响应是刻意的。
+ */
+const GAMEOVER_SETTLE_MS = 350;
 
 function muteLabel(muted: boolean): string {
   return muted ? "音效 关" : "音效 开";
@@ -95,14 +120,15 @@ function focusPrimary(root: HTMLElement): void {
 
 const HELP_HTML = `
   <div id="help-panel" class="help-panel" hidden>
-    <div class="help-row"><span class="help-k">键盘</span>
-      <span><kbd>A</kbd>/<kbd>←</kbd> 左换道 · <kbd>D</kbd>/<kbd>→</kbd> 右换道 ·
-      <kbd>空格</kbd>/<kbd>W</kbd>/<kbd>↑</kbd> 跳跃 · <kbd>P</kbd>/<kbd>Esc</kbd> 暂停</span></div>
-    <div class="help-row"><span class="help-k">触屏</span>
-      <span>左 / 中 / 右三分屏：左换道、中跳跃、右换道 · 水平滑动换道</span></div>
-    <div class="help-row"><span class="help-k">规则</span>
-      <span>金币 +10 · 宝石 +50 · 水环 +100 并短暂无敌 · 连击越高加成越多 ·
-      连续无伤收集 15 个回 1 点气量</span></div>
+    <div class="help-row"><span class="help-k">开船</span>
+      <span><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> / 方向键开拾荒小船 ·
+      <kbd>空格</kbd> 或点按捞起漂浮物</span></div>
+    <div class="help-row"><span class="help-k">建造</span>
+      <span><kbd>1</kbd>–<kbd>5</kbd> 选建筑，点海面铺地基或在空地板上盖房 ·
+      地基必须贴着已有木筏</span></div>
+    <div class="help-row"><span class="help-k">生存</span>
+      <span>淡水和食物会持续消耗：净水机产水、钓鱼台产粮、收集器攒料 ·
+      风暴打外圈、海盗靠近让炮塔招呼 · 指挥中心没了或断粮太久就结算</span></div>
   </div>`;
 
 export function renderOverlay(
@@ -125,23 +151,23 @@ export function renderOverlay(
       <div class="panel" role="dialog" aria-label="疯狂水世界 标题菜单">
         ${muteHtml(payload.audio)}
         <h1>疯狂水世界</h1>
-        <div class="tag">CRAZY WATER WORLD · 滑道竞速街机</div>
-        <p class="subtitle">坐上充气泳圈冲下滑道！<br/>捡金币、钻水环、躲开橡皮鸭。</p>
+        <div class="tag">海上末日 · 拾荒建造</div>
+        <p class="subtitle">陆地沉了，太阳照常升起。<br/>捞木板、攒塑料，把三块木筏过成一座岛。</p>
         <div class="chips" aria-label="快捷操作提示">
-          <span class="chip"><kbd>A</kbd><kbd>D</kbd> 换道</span>
-          <span class="chip"><kbd>空格</kbd> 跳跃</span>
+          <span class="chip"><kbd>WASD</kbd> 开船</span>
+          <span class="chip"><kbd>空格</kbd> 捞取</span>
+          <span class="chip"><kbd>1</kbd>–<kbd>5</kbd> 建造</span>
           <span class="chip"><kbd>P</kbd> 暂停</span>
-          <span class="chip">触屏：点按 / 滑动</span>
         </div>
         <div class="stats">
-          <div class="stat"><span class="num">${Math.floor(payload.hiScore)}</span><span class="lbl">最高分</span></div>
+          <div class="stat"><span class="num">${Math.max(0, Math.floor(payload.hiDays))} 天</span><span class="lbl">最长存活</span></div>
         </div>
         <div class="btn-row">
-          <button id="btn-start" class="primary">开始冲浪</button>
-          <button id="btn-help" class="ghost" aria-expanded="false" aria-controls="help-panel">操作说明</button>
+          <button id="btn-start" class="primary">出海拾荒</button>
+          <button id="btn-help" class="ghost" aria-expanded="false" aria-controls="help-panel">玩法说明</button>
         </div>
         ${HELP_HTML}
-        <p class="hint">按 <kbd>Enter</kbd> 立即开始</p>
+        <p class="hint">按 <kbd>Enter</kbd> 立即出海</p>
       </div>`;
     root.querySelector("#btn-start")?.addEventListener("click", () => payload.onStart?.());
     const helpBtn = root.querySelector<HTMLButtonElement>("#btn-help");
@@ -151,7 +177,7 @@ export function renderOverlay(
       const open = helpPanel.hidden;
       helpPanel.hidden = !open;
       helpBtn.setAttribute("aria-expanded", String(open));
-      helpBtn.textContent = open ? "收起说明" : "操作说明";
+      helpBtn.textContent = open ? "收起说明" : "玩法说明";
     });
     bindMuteButton(root, payload.audio);
     bindKeys(() => payload.onStart?.(), root, payload.audio);
@@ -163,10 +189,10 @@ export function renderOverlay(
     root.innerHTML = `
       <div class="panel" role="dialog" aria-label="已暂停">
         ${muteHtml(payload.audio)}
-        <h1>暂停</h1>
-        <p class="subtitle">水流还在耳边轰鸣，随时回来。</p>
+        <h1>靠岸歇口气</h1>
+        <p class="subtitle">海浪替你看着家，木筏又不会跑。</p>
         <div class="btn-row">
-          <button id="btn-resume" class="primary">继续</button>
+          <button id="btn-resume" class="primary">继续漂流</button>
           <button id="btn-title" class="ghost">回标题</button>
         </div>
         <p class="hint"><kbd>P</kbd> / <kbd>Esc</kbd> 或 <kbd>Enter</kbd> 继续</p>
@@ -180,17 +206,21 @@ export function renderOverlay(
   }
 
   const over = gameoverCopy(payload);
+  const openedAt = performance.now();
+  const settled = (fn?: () => void) => () => {
+    if (performance.now() - openedAt >= GAMEOVER_SETTLE_MS) fn?.();
+  };
   root.innerHTML = `
     <div class="panel" role="dialog" aria-label="本局结算">
       ${muteHtml(payload.audio)}
-      ${payload.isNew ? '<div class="badge-new">新纪录！</div>' : ""}
+      ${payload.isNew ? '<div class="badge-new">最长存活新纪录！</div>' : ""}
       <h1>${over.title}</h1>
       <div class="tag">${over.tag}</div>
       <div class="stats">
-        <div class="stat"><span class="num">${Math.floor(payload.score ?? 0)}</span><span class="lbl">分数</span></div>
-        <div class="stat"><span class="num">${Math.floor(payload.distance ?? 0)}m</span><span class="lbl">距离</span></div>
-        <div class="stat"><span class="num">${payload.coins ?? 0}</span><span class="lbl">金币</span></div>
-        <div class="stat"><span class="num">${Math.floor(payload.hiScore)}</span><span class="lbl">历史最高</span></div>
+        <div class="stat highlight"><span class="num">${Math.max(0, Math.floor(payload.days ?? 0))} 天</span><span class="lbl">存活天数</span></div>
+        <div class="stat"><span class="num">${Math.max(0, Math.floor(payload.built ?? 0))}</span><span class="lbl">建筑</span></div>
+        <div class="stat"><span class="num">${Math.max(0, Math.floor(payload.salvaged ?? 0))}</span><span class="lbl">拾荒</span></div>
+        <div class="stat"><span class="num">${Math.max(0, Math.floor(payload.hiDays))} 天</span><span class="lbl">最长存活</span></div>
       </div>
       <div class="btn-row">
         <button id="btn-retry" class="primary">再来一局</button>
@@ -198,9 +228,9 @@ export function renderOverlay(
       </div>
       <p class="hint">按 <kbd>Enter</kbd> 再来一局</p>
     </div>`;
-  root.querySelector("#btn-retry")?.addEventListener("click", () => payload.onRetry?.());
-  root.querySelector("#btn-title")?.addEventListener("click", () => payload.onTitle?.());
+  root.querySelector("#btn-retry")?.addEventListener("click", settled(payload.onRetry));
+  root.querySelector("#btn-title")?.addEventListener("click", settled(payload.onTitle));
   bindMuteButton(root, payload.audio);
-  bindKeys(() => payload.onRetry?.(), root, payload.audio);
+  bindKeys(settled(payload.onRetry), root, payload.audio);
   focusPrimary(root);
 }

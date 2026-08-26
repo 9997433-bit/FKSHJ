@@ -1,6 +1,6 @@
 import { CANVAS } from "../data/constants";
 
-/** 场景 ID（GAME_SPEC §7：boot → title → playing ⇄ paused → gameover → title） */
+/** 场景 ID（GAME_SPEC §5：boot → title → playing ⇄ paused → gameover → title） */
 export type SceneId = "boot" | "title" | "playing" | "paused" | "gameover";
 
 /** 合法场景迁移表；键 = 当前场景，值 = 允许进入的下一场景 */
@@ -27,6 +27,8 @@ export type SceneListener = (next: SceneId, prev: SceneId) => void;
  *   contextLost 跳过无效绘制。
  * - 场景切换统一走 scene setter / setScene：同值幂等，不合法迁移
  *   console.warn 后仍放行（多代理协作下宁可吵闹也不软锁死游戏）。
+ * - CANVAS 是 data/constants.ts 里「被运行时消费」的一段（非文档镜像，
+ *   见其头注释）：改 w/h/maxDpr 就是改所有人的坐标系，动前先吱声。
  */
 export class Engine {
   readonly canvas: HTMLCanvasElement;
@@ -81,7 +83,7 @@ export class Engine {
     const prev = this.sceneValue;
     if (next === prev) return false;
     if (!SCENE_FLOW[prev].includes(next)) {
-      console.warn(`[engine] 非常规场景迁移 ${prev} → ${next}（规格 §7）`);
+      console.warn(`[engine] 非常规场景迁移 ${prev} → ${next}（规格 §5）`);
     }
     this.sceneValue = next;
     for (const fn of this.sceneListeners) fn(next, prev);
