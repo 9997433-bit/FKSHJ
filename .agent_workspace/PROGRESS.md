@@ -21,7 +21,7 @@
 | Round 1 | 完成 | 见 ROUND1_BRIEF.md |
 | Round 2 | 完成 | 见 ROUND2_BRIEF.md。34 测 + 长局不再空 |
 | Round 3 | 完成 | 见 ROUND3_BRIEF.md。34 测 + 回收 + 文档终审 |
-| 归档合并 | 进行中 | 草稿 PR #1 可验收；收尾轮已合进隔离分支 |
+| 归档合并 | 完成 | 已合入 `main`，GitHub Pages 部署中 |
 
 ## Round 1 派发记录
 
