@@ -11,10 +11,14 @@
  *
  * 一眼分得开（ARCHITECTURE §4 的可读性要求）：
  * - 小船：亮木色、尖头、敞开的船舱、舷外一支桨和一个捞网，个头小；
- * - 海盗：近黑的船壳、暗红舷条、鼓起来的破帆、船尾的黑旗、船头包铁的撞角，个头明显大一圈。
+ * - 海盗：近黑的船壳、暗红舷条、帆上一道同色横条、船尾的黑旗、
+ *   船头包铁的撞角，个头明显大一圈。
  *
  * 夜里只压暗、不点亮：唯一的光是小船船头那盏灯，
  * 用 `nightness` 控在很低的 alpha 上，放大了也不刺眼。
+ *
+ * 船上不许出现漂浮物的色号与画法（`world/junk.ts` 的 JUNK_STYLES）：
+ * 那套颜色是「这东西能捞」的信号，搬到船身上，1× 缩放下玩家会去追自己的船。
  */
 
 import { RAFT_ORIGIN } from "../sim/rules";
@@ -223,17 +227,24 @@ export function drawSkiff(
   ctx.lineWidth = 1.2;
   ctx.stroke();
 
-  // 盘着的缆绳：先描一圈暗的当绳缝，再压一圈亮的绳身。
-  // 只画亮色的话它和甲板同色，会糊成一坨奶油
-  for (const [color, width] of [["#6b4a22", 3], ["#e0c48a", 1.5]] as const) {
-    ctx.strokeStyle = dim(color, night, p);
-    ctx.lineWidth = width;
-    for (const r of [4.4, 2.5]) {
-      ctx.beginPath();
-      ctx.ellipse(10, 0, r, r * 0.8, 0, 0, Math.PI * 2);
-      ctx.stroke();
-    }
-  }
+  // 系缆桩：一根横木加一段甩回舱口的缆。
+  // 这儿原先盘的是两色同心圈的缆绳，和 world/junk 的绳索卷是同一个画法、
+  // 同一个色号（#e0c48a），1× 下船头看着像搁了一件待捞的漂浮物
+  ctx.save();
+  ctx.lineCap = "round";
+  ctx.strokeStyle = dim("#8a6338", night, p, 0.3);
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(8, -2.4);
+  ctx.lineTo(8, 2.4);
+  ctx.stroke();
+  ctx.strokeStyle = dim("#a98a58", night, p, 0.3);
+  ctx.lineWidth = 1.1;
+  ctx.beginPath();
+  ctx.moveTo(8, -1.2);
+  ctx.quadraticCurveTo(4.5, -2.4, 1.5, -0.6);
+  ctx.stroke();
+  ctx.restore();
 
   // 船舱：敞开的舱口最能和海盗那条闷罐子拉开距离
   const cockpit = { x: a.stern + 3.5, y: -a.beam * 0.52, w: 15, h: a.beam * 1.04 };
@@ -250,10 +261,20 @@ export function drawSkiff(
   for (const x of [cockpit.x + 2.5, cockpit.x + cockpit.w - 5]) {
     ctx.fillRect(x, cockpit.y + 0.6, 2.6, cockpit.h - 1.2);
   }
-  ctx.fillStyle = dim("#9fe6ff", night, p, 0.45);
+  // 战利品是塞在舱底阴影里的，不能照搬漂浮物那两个亮色
+  // （塑料 #9fe6ff / 金属 #b9c4cc）：原样摆上甲板，1× 下就成了
+  // 「船上放着两件可以捞的东西」，和海面的可捞物抢同一个读法
+  const stowed = (c: string) => dim(mixHex(c, "#1d1006", 0.52), night, p, 0.4);
+  ctx.fillStyle = stowed("#9fe6ff");
   ctx.fillRect(cockpit.x + 6.5, -2.6, 4.4, 5.2);
-  ctx.fillStyle = dim("#b9c4cc", night, p, 0.45);
+  ctx.fillStyle = stowed("#b9c4cc");
   ctx.fillRect(cockpit.x + 6.2, 1.4, 5, 2.4);
+  ctx.strokeStyle = dim("#7a5a2e", night, p, 0.3);
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(cockpit.x + 8.2, cockpit.y + 0.6);
+  ctx.lineTo(cockpit.x + 8.2, cockpit.y + cockpit.h - 0.6);
+  ctx.stroke();
 
   // 尾板 + 一支随推力摆的桨
   ctx.fillStyle = dim("#8a5a2b", night, p);
@@ -288,18 +309,27 @@ export function drawSkiff(
 
   // 船头灯：白天只是个铜点，夜里才亮。颜色是灯油的暖黄——
   // 用 palette.accent 的话夜相位是青绿，一盏灯会亮得像信号灯
+  // 灯要看得见靠的是衬底不是亮度：一圈细黑边把灯芯圈出来，白天是个铜点、
+  // 夜里同一个点烧成灯油色，两头都不用把 alpha 往上顶。
+  // 灯座别填成实心暗盘——那样白天在船头会读成一个靶心
   const lampColor = mixHex("#ffcb7d", p.glint, 0.35);
-  ctx.fillStyle = withAlpha(lampColor, 0.4 + night * 0.4);
+  const lampX = a.bow - 6.5;
+  ctx.fillStyle = dim(mixHex("#b8823c", lampColor, night), night, p, 0.2);
   ctx.beginPath();
-  ctx.arc(a.bow - 6.5, 0, 2, 0, Math.PI * 2);
+  ctx.arc(lampX, 0, 2.4, 0, Math.PI * 2);
   ctx.fill();
+  ctx.strokeStyle = dim("#4a2f14", night, p, 0.25);
+  ctx.lineWidth = 1;
+  ctx.stroke();
   if (night > 0.05) {
-    const glow = ctx.createRadialGradient(a.bow - 6.5, 0, 1, a.bow - 6.5, 0, 16);
-    glow.addColorStop(0, withAlpha(lampColor, 0.06 + night * 0.16));
+    // 中间补一个停靠点，光晕才是渐渐化开的，不是贴上去的一个圆盘
+    const glow = ctx.createRadialGradient(lampX, 0, 1.5, lampX, 0, 15);
+    glow.addColorStop(0, withAlpha(lampColor, 0.05 + night * 0.13));
+    glow.addColorStop(0.45, withAlpha(lampColor, 0.02 + night * 0.055));
     glow.addColorStop(1, withAlpha(lampColor, 0));
     ctx.fillStyle = glow;
     ctx.beginPath();
-    ctx.arc(a.bow - 6.5, 0, 16, 0, Math.PI * 2);
+    ctx.arc(lampX, 0, 15, 0, Math.PI * 2);
     ctx.fill();
   }
 
@@ -549,6 +579,19 @@ function drawSail(
   ctx.strokeStyle = "rgba(30, 20, 12, 0.75)";
   ctx.lineWidth = 1.3;
   ctx.stroke();
+
+  // 帆上的暗红横条。1× 缩放下两条船各自只剩一块亮斑——小船那块是素木
+  // 甲板，海盗这块得带上舷条那个身份色，缩到十来个像素也认得出是谁
+  ctx.save();
+  ctx.beginPath();
+  ctx.moveTo(root, -span);
+  ctx.quadraticCurveTo(root + bulge, 0, root, span);
+  ctx.quadraticCurveTo(root - 3, 0, root, -span);
+  ctx.closePath();
+  ctx.clip();
+  ctx.fillStyle = dim(a.trim, night, p, 0.35);
+  ctx.fillRect(root - 4, -span * 0.3, bulge + 6, span * 0.6);
+  ctx.restore();
 
   // 帆布的缝与褶
   ctx.strokeStyle = withAlpha("#4a3a26", 0.5);
