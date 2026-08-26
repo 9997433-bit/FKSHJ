@@ -320,6 +320,19 @@ export type PlaceCheck =
   | { readonly ok: true; readonly cost: Cost }
   | { readonly ok: false; readonly reason: PlaceDenial; readonly cost: Cost };
 
+/** 每种拒绝理由对应的中文短句，HUD 直接贴到光标边上 */
+export const PLACE_HINTS: Record<PlaceDenial, string> = {
+  occupied: "这格已经占了",
+  "not-adjacent": "得贴着木筏放",
+  "needs-floor": "得盖在空地基上",
+  "cannot-afford": "材料不够",
+};
+
+/** 拒绝理由 → 中文短句。纯函数，给 HUD/session 显示用 */
+export function placeHint(reason: PlaceDenial): string {
+  return PLACE_HINTS[reason] ?? "放不了";
+}
+
 /**
  * 放置合法性。顺序刻意是「位置先于价格」：位置不对时 HUD 该说
  * 「贴着筏子放」，而不是先怪玩家穷。

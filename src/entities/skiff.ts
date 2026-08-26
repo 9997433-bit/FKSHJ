@@ -105,23 +105,33 @@ export function updateSkiff(s: Skiff, ax: number, ay: number, dt: number, bounds
   return s;
 }
 
-/** 目标是否在捞取半径内；extra 传漂浮物自身半径 */
-export function inScoopRange(s: Skiff, target: Vec2, extra = 0): boolean {
-  const r = SKIFF.scoopRadius + extra;
-  return (target.x - s.x) ** 2 + (target.y - s.y) ** 2 <= r * r;
+/**
+ * 捞取目标：给坐标就行。带自身半径 `r` 的（漂浮物就是）按边缘判定，
+ * 和 world/junk 的 pickJunk 同一条规则——否则「高亮的捞不着 / 捞到的没高亮」。
+ */
+export type ScoopTarget = Vec2 & { readonly r?: number };
+
+/** 目标可捞距离的平方；extra 是调用方额外放宽的量 */
+function scoopReachSq(target: ScoopTarget, extra: number): number {
+  const r = SKIFF.scoopRadius + extra + (target.r ?? 0);
+  return r * r;
+}
+
+/** 目标是否在捞取半径内 */
+export function inScoopRange(s: Skiff, target: ScoopTarget, extra = 0): boolean {
+  return (target.x - s.x) ** 2 + (target.y - s.y) ** 2 <= scoopReachSq(target, extra);
 }
 
 /** 捞取半径内最近的一个；没有就 undefined */
-export function nearestInScoop<T extends Vec2>(s: Skiff, items: readonly T[], extra = 0): T | undefined {
-  const r = SKIFF.scoopRadius + extra;
+export function nearestInScoop<T extends ScoopTarget>(s: Skiff, items: readonly T[], extra = 0): T | undefined {
   let best: T | undefined;
-  let bestD = r * r;
+  let bestD = Infinity;
   for (const it of items) {
     const d = (it.x - s.x) ** 2 + (it.y - s.y) ** 2;
-    if (d <= bestD) {
-      bestD = d;
-      best = it;
-    }
+    // 同距离留先出现的那个：和 pickJunk / nearestCell 一致，高亮不会在两件之间来回跳
+    if (d >= bestD || d > scoopReachSq(it, extra)) continue;
+    bestD = d;
+    best = it;
   }
   return best;
 }

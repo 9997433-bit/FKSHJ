@@ -135,14 +135,17 @@ export function createInput(target: HTMLElement): InputState {
     const menu = inMenuControl(e.target);
     if (!menu && e.cancelable && OWNED_KEYS.includes(e.code)) e.preventDefault();
 
-    if (pressed) down.add(e.code);
-    else down.delete(e.code);
-    if (!pressed || e.repeat) return;
-    // 焦点在按钮上：空格该按按钮，不该捞东西
+    // 焦点在按钮上：空格该按按钮，不该捞东西。
+    // 连按住状态也不记——浏览器的 repeat keydown 会绕过下面的 e.repeat 提前返回，
+    // 键就永远留在 down 里，松手后 scoopHeld 一直是 true。
     if (menu) {
       down.delete(e.code);
       return;
     }
+
+    if (pressed) down.add(e.code);
+    else down.delete(e.code);
+    if (!pressed || e.repeat) return;
 
     if (SCOOP_KEYS.includes(e.code)) scoopQueued = true;
     if (PAUSE_KEYS.includes(e.code)) {
