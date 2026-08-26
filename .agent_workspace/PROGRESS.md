@@ -34,11 +34,13 @@
 | gpt-test | local | `bc-9fcce4c8-069a-5523-9d38-a0c8200a928f` | 已合并 |
 | gpt-probe | local | `bc-aaa77fd6-0569-5a4c-948c-c5252e446880` | 已合并 |
 
-## Round 2 派发计划
+## Round 2 派发记录
 
-1. fable-arch — 对照 BRIEF 复审架构，更新 ARCHITECTURE
-2. fable-sota — 泳圈造型 / 泡沫与滑道对齐 / SOTA P0
-3. opus-core — 落水失败、换道视觉与碰撞一致
-4. opus-content — 流式关卡、主题循环、BGM
-5. gpt-test — 新生成器 / hop / 存档回归
-6. gpt-probe — 更新 BENCH 快照与长局探针
+| 角色 | 环境 | Agent ID | 状态 |
+| --- | --- | --- | --- |
+| fable-arch | cloud | `bc-4a967bf5-2bd9-56d2-8c94-7b7dc4a38f3e` | 运行中 |
+| fable-sota | cloud | `bc-993634f2-a713-5fc9-a207-a4f641dc65d4` | 运行中 |
+| opus-content | cloud | `bc-2ce5cda9-7350-5957-9a67-eaea45bfbec1` | 运行中 |
+| opus-core | local | `bc-f33f8ea2-5c35-50b7-9683-9baff7d16890` | 运行中 |
+| gpt-test | local | `bc-85d38b55-2e52-5bdc-b07f-833077a49cce` | 运行中 |
+| gpt-probe | local | `bc-dc2e5c29-59d2-5a8c-81db-9e1a8e89959d` | 运行中 |
