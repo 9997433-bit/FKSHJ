@@ -12,6 +12,8 @@ type TapeEvent = {
 const RUN_ID = 0xc0ffee;
 const DT = 1 / 60;
 const TOTAL_FRAMES = 1_200;
+const LONG_RUN_TARGET_DISTANCE = 10_000;
+const LONG_RUN_MAX_FRAMES = 30_000;
 
 // Discrete key presses captured as a reproducible 20-second input tape.
 const INPUT_TAPE: readonly TapeEvent[] = [
@@ -92,12 +94,50 @@ function replay(runId: number): ReturnType<typeof snapshot> {
   return snapshot(session);
 }
 
+function probeLongRun(runId: number) {
+  const session = new Session(new Sfx(), runId);
+  // This probe measures world coverage, so collisions must not end the run early.
+  session.player.invuln = Number.POSITIVE_INFINITY;
+
+  let frames = 0;
+  while (session.distance < LONG_RUN_TARGET_DISTANCE && frames < LONG_RUN_MAX_FRAMES) {
+    session.update(DT, 0, false);
+    frames += 1;
+    assert(Number.isFinite(session.distance), `long-run distance became non-finite at frame ${frames}`);
+  }
+
+  assert(session.distance >= LONG_RUN_TARGET_DISTANCE, "long-run target distance was not reached");
+  assert(!session.over, "long-run probe ended before measuring world coverage");
+
+  const pickupsAhead = session.world.pickups.filter(
+    (pickup) => !pickup.taken && pickup.z > session.distance,
+  ).length;
+  const hazardsAhead = session.world.hazards.filter(
+    (hazard) => !hazard.hit && hazard.z > session.distance,
+  ).length;
+  const farthestPickupZ = Math.max(...session.world.pickups.map((pickup) => pickup.z));
+  const farthestHazardZ = Math.max(...session.world.hazards.map((hazard) => hazard.z));
+
+  return {
+    runId,
+    targetDistance: LONG_RUN_TARGET_DISTANCE,
+    frames,
+    distance: Number(session.distance.toFixed(3)),
+    pickupsAhead,
+    hazardsAhead,
+    farthestPickupZ: Number(farthestPickupZ.toFixed(3)),
+    farthestHazardZ: Number(farthestHazardZ.toFixed(3)),
+    worldEmptyAhead: pickupsAhead === 0 && hazardsAhead === 0,
+  };
+}
+
 const first = replay(RUN_ID);
 const second = replay(RUN_ID);
 assert(
   JSON.stringify(first) === JSON.stringify(second),
   `same-runId replay diverged:\nfirst=${JSON.stringify(first)}\nsecond=${JSON.stringify(second)}`,
 );
+const longRun = probeLongRun(RUN_ID);
 
 console.log(JSON.stringify({
   sessionProbe: {
@@ -113,4 +153,5 @@ console.log(JSON.stringify({
       boostLeft: Number(first.boostLeft.toFixed(3)),
     },
   },
+  longRunProbe: longRun,
 }, null, 2));
