@@ -10,6 +10,6 @@
     "isolatedModules": true,
     "types": []
   },
-  "include": ["src", "scripts"],
-  "exclude": ["src/tests"]
+  "include": ["games/sea/src", "scripts"],
+  "exclude": ["games/sea/src/tests"]
 }

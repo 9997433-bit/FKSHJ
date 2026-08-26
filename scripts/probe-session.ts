@@ -1,4 +1,4 @@
-import { Session } from "../src/session";
+import { Session } from "../games/sea/src/session";
 
 type ProbeAction =
   | { kind: "key"; code: "KeyW" | "KeyA" | "KeyS" | "KeyD"; pressed: boolean }

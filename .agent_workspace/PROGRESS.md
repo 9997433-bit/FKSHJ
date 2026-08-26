@@ -1,17 +1,26 @@
-# 疯狂水世界 — 编排进度（海上末日重开）
+# 疯狂水世界 — 编排进度（SOTA 扩玩法 + 多游戏目录）
 
-- **Goal**: 模仿益世界《疯狂水世界》的浏览器海上末日生存原型（拾荒 / 浮岛 / 养活岛民）
-- **隔离分支**: `agent/crazy-sea-world`
+- **Goal**: 加玩法 / 剧情 / 物品，并做成 SOTA 打磨；海上生存单独住进 `games/sea/`，根目录留给以后其它游戏
+- **隔离分支**: `agent/sea-sota-expand`
 - **父调度器**: Cursor Grok 4.6
 - **仓库**: github.com/9997433-bit/FKSHJ
-- **纠正**: 上一轮做成了滑道街机，已整支清掉重开。已合并的 PR #1/#2 留在历史上，不再改写。
+- **平台**: 每轮 10 路（4 fable + 4 opus-fast + 2 gpt-sol）；云端 VM 上限 3 → **3 云端 + 7 本机**
+- **禁止**: 官方角色名/立绘、陈小春肖像、官方曲、照抄数值表；静默换模型
+
+## 模型映射
+
+| 简称 | slug |
+| --- | --- |
+| fable | claude-fable-5-thinking-xhigh |
+| opus-fast | claude-opus-5-thinking-high-fast |
+| gpt-sol | gpt-5.6-sol-xhigh-fast |
 
 ## 循环状态
 
 | 轮次 | 状态 | 说明 |
 | --- | --- | --- |
-| 准备 | 完成 | 清滑道代码、新规格、隔离分支已推 |
-| Round 1 | 完成 | 模块齐；session/main 已接线 |
-| Round 2 | 完成 | 数值对齐、船体、HUD 预警、局级单测 |
-| Round 3 | 完成 | sim 读 constants、补测、船体/HUD 打磨、placeHint 已接 |
-| 归档合并 | 待合 main | Pages 仍是旧滑道，合入后需重跑 workflow |
+| 准备 | 进行中 | 分支已建；游戏迁入 `games/sea/` |
+| Round 1 | 未开始 | |
+| Round 2 | 未开始 | |
+| Round 3 | 未开始 | |
+| 归档合并 | 未开始 | |
