@@ -1,36 +1,28 @@
 /**
- * 木筏 —— 建造网格上的地板与建筑，俯视绘制。
+ * 木筏 —— 格子甲板与六种结构的俯视绘制。
  *
- * 本模块**只画不管状态**：格子数据归 `sim/**`（opus-core），这里接受任何
- * 满足 `RaftTileView` 形状的只读数组，按 `TILE` 的网格几何摆到画布上。
- * 网格换算（`px = TILE.originX + gx * TILE.sizePx`）也一并导出，
- * 输入层要把鼠标位置换成格坐标时读 `tileAt`，不必自己重算一遍。
+ * 本模块**只画不管状态**：格子数据归 `sim/rules.ts`（`Raft` / `Cell`），
+ * 网格几何也直接复用它的 `TILE` / `tileCenter` / `worldToTile`，
+ * 所以渲染与判定永远落在同一个格子上——不存在「看着在这格、算在那格」。
+ *
+ * 依赖方向符合 ARCHITECTURE §1：渲染层只读 sim 暴露的状态，不回写。
+ * 传进来的数组可以直接是 `allCells(raft)`，`Cell` 天然满足 `RaftCellView`。
  *
  * 视觉约定：
- * - 每格 48px，格与格之间留 1px 缝，看得出是一块块板拼的；
- * - 临水的边补白沫与亮边——玩家一眼看出筏的轮廓在哪、还能往哪长；
+ * - 每格 64px，格与格之间留一条缝，看得出筏是一块块板拼的；
+ * - 临水的边补浮木沿与白沫——玩家一眼看出筏的轮廓和能往哪长；
  * - 整筏随 `swayAt` 的涌浪场轻微摇摆，与漂浮物、小船同相。
  */
 
-import { TILE, type BuildingId, type StructureId } from "../data/constants";
+import { progressOf } from "../sim/economy";
+import { BUILDINGS, NEIGHBOR4, TILE, cellKey, tileCenter, worldToTile, type BuildingId } from "../sim/rules";
 import { swayAt, withAlpha, type SeaPalette } from "./ocean";
 
-/** 一格边长（逻辑像素），等于 `TILE.sizePx`，绘制里到处要用，单独起个短名。 */
-export const TILE_PX = TILE.sizePx;
+export { TILE, tileCenter, worldToTile };
 
-/** 建筑中文名。HUD、提示、结算共用一份，别各写各的。 */
-export const STRUCTURE_LABEL: Record<StructureId, string> = {
-  hq: "指挥中心",
-  floor: "木筏地板",
-  collector: "收集器",
-  purifier: "净水机",
-  fish: "钓鱼台",
-  turret: "炮塔",
-};
-
-/** 建筑主色：幽灵预览、HUD 图标、选中描边共用。 */
-export const STRUCTURE_TINT: Record<StructureId, string> = {
-  hq: "#ffd166",
+/** 结构主色：幽灵预览、HUD 图标、选中描边共用。 */
+export const STRUCTURE_TINT: Record<BuildingId, string> = {
+  core: "#ffd166",
   floor: "#c08b52",
   collector: "#7cf7ff",
   purifier: "#8ee6ff",
@@ -38,36 +30,29 @@ export const STRUCTURE_TINT: Record<StructureId, string> = {
   turret: "#ff8a5c",
 };
 
-/** 快捷键提示（GAME_SPEC §3：1–5 选建筑）。 */
-export const BUILD_HOTKEY: Record<BuildingId, string> = {
-  floor: "1",
-  collector: "2",
-  purifier: "3",
-  fish: "4",
-  turret: "5",
-};
-
 /**
- * 绘制需要的格子信息。除了坐标与种类，其余都可选——
- * sim 只要给得出 `{ gx, gy, id }` 就能画，动画字段有就用、没有就取默认。
+ * 绘制需要的格子信息。`sim` 的 `Cell` 直接满足它；
+ * 除坐标与种类外全部可选，纯装饰字段没有就取默认。
  */
-export type RaftTileView = {
+export type RaftCellView = {
   gx: number;
   gy: number;
-  id: StructureId;
+  id: BuildingId;
   /** 当前血量；不给按满血画（满血不显示血条） */
   hp?: number;
-  /** 血量上限；不给则读 `STRUCTURE_HP` */
+  /** 血量上限；不给读 `BUILDINGS[id].maxHp` */
   maxHp?: number;
-  /** 0..1 生产进度：收集器的料堆、净水机的水位、钓鱼台的鱼漂 */
+  /** sim 的产出计时器；没给 `work01` 时用它折算进度环 */
+  timer?: number;
+  /** 0..1 生产进度，优先于 `timer` */
   work01?: number;
-  /** 炮塔朝向（弧度，0 = 屏幕右） */
+  /** 炮塔朝向（弧度，0 = 屏幕右）；不给就自己慢慢扫 */
   aim?: number;
-  /** 受击闪白剩余秒数（也当作炮塔的开火闪光） */
+  /** 受击闪白剩余秒数（炮塔用它当开火闪光） */
   flash?: number;
-  /** 建成动画 0→1；不给按 1（已建好） */
+  /** 建成动画 0→1；不给按 1 */
   grow01?: number;
-  /** 断料 / 停机：画成灰的 */
+  /** 停机 / 断料：画淡 */
   off?: boolean;
 };
 
@@ -75,71 +60,37 @@ export type RaftView = {
   /** 局内累计秒（loop 的 elapsed） */
   time: number;
   palette: SeaPalette;
-  /** 建造预览 */
+  /** 建造预览：`ok` 由 sim 的 canPlace + canAfford 算好，绘制不重复判定 */
   ghost?: { gx: number; gy: number; id: BuildingId; ok: boolean } | null;
   /** 光标 / 悬停格 */
   cursor?: { gx: number; gy: number } | null;
   /** 0..1 危险提示：整筏描红边（风暴预警、海盗贴脸） */
   alert01?: number;
-  /** 画出整片可建网格（建造模式） */
-  showGrid?: boolean;
+  /** 风暴预警落点：这些格子上闪红十字 */
+  marks?: readonly { gx: number; gy: number }[];
 };
 
 /* ------------------------------------------------------------------ *
  * 网格几何
  * ------------------------------------------------------------------ */
 
-/** 格坐标 → 该格左上角的像素坐标。 */
-export function tileOrigin(gx: number, gy: number): { x: number; y: number } {
-  return { x: TILE.originX + gx * TILE_PX, y: TILE.originY + gy * TILE_PX };
+/** 格子的屏幕矩形（左上角 + 边长）。`tileCenter` 给的是中心。 */
+export function tileRect(gx: number, gy: number): { x: number; y: number; w: number; h: number } {
+  const c = tileCenter(gx, gy);
+  return { x: c.x - TILE / 2, y: c.y - TILE / 2, w: TILE, h: TILE };
 }
 
-/** 格坐标 → 格子中心像素。 */
-export function tileCenter(gx: number, gy: number): { x: number; y: number } {
-  const o = tileOrigin(gx, gy);
-  return { x: o.x + TILE_PX / 2, y: o.y + TILE_PX / 2 };
-}
-
-/** 像素 → 格坐标（可能落在网格外，用 `inGrid` 判）。 */
-export function tileAt(px: number, py: number): { gx: number; gy: number } {
-  return {
-    gx: Math.floor((px - TILE.originX) / TILE_PX),
-    gy: Math.floor((py - TILE.originY) / TILE_PX),
-  };
-}
-
-export function inGrid(gx: number, gy: number): boolean {
-  return gx >= 0 && gy >= 0 && gx < TILE.gridW && gy < TILE.gridH;
-}
-
-/** 整片可建区在画布上的矩形。 */
-export function gridRect(): { x: number; y: number; w: number; h: number } {
-  return {
-    x: TILE.originX,
-    y: TILE.originY,
-    w: TILE.gridW * TILE_PX,
-    h: TILE.gridH * TILE_PX,
-  };
-}
-
-export function tileKey(gx: number, gy: number): string {
-  return `${gx},${gy}`;
-}
-
-/** 木筏中心（已建格子的重心），像素坐标。空筏回落到网格正中。 */
-export function raftCentroid(tiles: readonly RaftTileView[]): { x: number; y: number } {
-  if (tiles.length === 0) {
-    const r = gridRect();
-    return { x: r.x + r.w / 2, y: r.y + r.h / 2 };
-  }
+/** 已建格子的重心（像素）。空筏回落到网格原点。 */
+export function raftCentroid(cells: readonly RaftCellView[]): { x: number; y: number } {
+  if (cells.length === 0) return tileCenter(0, 0);
   let sx = 0;
   let sy = 0;
-  for (const t of tiles) {
-    const c = tileCenter(t.gx, t.gy);
-    sx += c.x;
-    sy += c.y;
+  for (const c of cells) {
+    const p = tileCenter(c.gx, c.gy);
+    sx += p.x;
+    sy += p.y;
   }
-  return { x: sx / tiles.length, y: sy / tiles.length };
+  return { x: sx / cells.length, y: sy / cells.length };
 }
 
 /* ------------------------------------------------------------------ *
@@ -155,53 +106,45 @@ function hash01(n: number): number {
   return x - Math.floor(x);
 }
 
-/** 默认血量上限：`RaftTileView.maxHp` 没给时用它，避免每个调用点都填。 */
-const DEFAULT_MAX_HP: Record<StructureId, number> = {
-  hq: 40,
-  floor: 10,
-  collector: 12,
-  purifier: 12,
-  fish: 12,
-  turret: 20,
-};
+function maxHpOf(c: RaftCellView): number {
+  return c.maxHp ?? BUILDINGS[c.id].maxHp;
+}
 
-const NEIGHBORS: readonly (readonly [number, number])[] = [
-  [1, 0],
-  [-1, 0],
-  [0, 1],
-  [0, -1],
-];
+/** 生产进度：优先用调用方给的 `work01`，否则拿 sim 的 timer 折算。 */
+function workOf(c: RaftCellView): number {
+  if (c.work01 !== undefined) return clamp01(c.work01);
+  if (c.timer === undefined) return 0;
+  return progressOf({ gx: c.gx, gy: c.gy, id: c.id, hp: c.hp ?? 1, maxHp: maxHpOf(c), timer: c.timer });
+}
 
 /**
- * 画整张筏。分四趟：水下阴影 → 甲板 → 临水边缘 → 建筑，
- * 分趟是为了让邻格的白沫与建筑不会被后画的甲板压掉一角。
+ * 画整张筏。分四趟：水下阴影 → 甲板 → 边沿 → 结构，
+ * 分趟画是为了让邻格的白沫和结构不会被后画的甲板压掉一角。
  *
  * 整筏随涌浪摇摆：一次 translate + rotate 作用于所有格子，
- * 所以筏是一整块在动，而不是一堆各晃各的板子。
+ * 所以筏是一整块在动，而不是一堆各晃各的板。
  */
 export function drawRaft(
   ctx: CanvasRenderingContext2D,
-  tiles: readonly RaftTileView[],
+  cells: readonly RaftCellView[],
   view: RaftView,
 ): void {
-  const centroid = raftCentroid(tiles);
+  const centroid = raftCentroid(cells);
   const sway = swayAt(centroid.x, centroid.y, view.time, 1);
   const occupied = new Set<string>();
-  for (const t of tiles) occupied.add(tileKey(t.gx, t.gy));
+  for (const c of cells) occupied.add(cellKey(c.gx, c.gy));
 
   ctx.save();
   ctx.translate(centroid.x + sway.dx, centroid.y + sway.dy);
   ctx.rotate(sway.rot);
   ctx.translate(-centroid.x, -centroid.y);
 
-  if (view.showGrid) drawBuildGrid(ctx, view);
-
-  for (const t of tiles) drawTileShadow(ctx, t);
-  for (const t of tiles) drawDeck(ctx, t, view);
-  for (const t of tiles) drawTileEdges(ctx, t, view, occupied);
-  for (const t of tiles) {
-    if (t.id !== "floor") drawStructure(ctx, t, view, occupied);
-    drawHpBar(ctx, t, view);
+  for (const c of cells) drawCellShadow(ctx, c);
+  for (const c of cells) drawDeck(ctx, c, view);
+  for (const c of cells) drawCellEdges(ctx, c, view, occupied);
+  for (const c of cells) {
+    if (c.id !== "floor") drawStructure(ctx, c, view, occupied);
+    drawHpBar(ctx, c, view);
   }
 
   const alert = clamp01(view.alert01 ?? 0);
@@ -210,197 +153,226 @@ export function drawRaft(
     ctx.strokeStyle = view.palette.danger;
     ctx.globalAlpha = alert * (0.3 + Math.abs(Math.sin(view.time * 6)) * 0.5);
     ctx.lineWidth = 2.5;
-    for (const t of tiles) {
-      const o = tileOrigin(t.gx, t.gy);
-      ctx.strokeRect(o.x + 1, o.y + 1, TILE_PX - 2, TILE_PX - 2);
+    for (const c of cells) {
+      const r = tileRect(c.gx, c.gy);
+      ctx.strokeRect(r.x + 1, r.y + 1, r.w - 2, r.h - 2);
     }
     ctx.restore();
   }
 
+  if (view.marks) {
+    for (const m of view.marks) drawStormMark(ctx, m.gx, m.gy, view);
+  }
   if (view.cursor) drawTileCursor(ctx, view.cursor.gx, view.cursor.gy, view);
   if (view.ghost) drawGhost(ctx, view.ghost.gx, view.ghost.gy, view.ghost.id, view.ghost.ok, view);
 
   ctx.restore();
 }
 
-/** 水下的暗块：让筏看起来是浮在水上、有厚度的。 */
-function drawTileShadow(ctx: CanvasRenderingContext2D, t: RaftTileView): void {
-  const o = tileOrigin(t.gx, t.gy);
+/**
+ * 水下的暗块：让筏看起来是浮着的、有厚度。
+ *
+ * 铺满整格再外扩一点，顺带把相邻两格之间的板缝垫成暗色——
+ * 不垫的话缝里透出来的是亮海蓝，整张筏会被切成一块块贴纸。
+ */
+function drawCellShadow(ctx: CanvasRenderingContext2D, c: RaftCellView): void {
+  const r = tileRect(c.gx, c.gy);
+  const grow = clamp01(c.grow01 ?? 1);
   ctx.save();
-  ctx.globalAlpha = 0.3;
+  ctx.translate(r.x + TILE / 2, r.y + TILE / 2);
+  ctx.scale(0.55 + grow * 0.45, 0.55 + grow * 0.45);
+  ctx.globalAlpha = (0.2 + grow * 0.8) * 0.42;
   ctx.fillStyle = "#02121e";
-  ctx.fillRect(o.x - 2, o.y + 3, TILE_PX + 4, TILE_PX + 3);
+  ctx.fillRect(-TILE / 2 - 2.5, -TILE / 2 - 2.5, TILE + 5, TILE + 5);
+  ctx.globalAlpha = (0.2 + grow * 0.8) * 0.26;
+  ctx.fillRect(-TILE / 2 - 2, -TILE / 2 + 5, TILE + 4, TILE + 3);
   ctx.restore();
 }
 
-/** 一格甲板：木色 + 板缝 + 磨损。 */
-function drawDeck(ctx: CanvasRenderingContext2D, t: RaftTileView, view: RaftView): void {
-  const o = tileOrigin(t.gx, t.gy);
-  const grow = clamp01(t.grow01 ?? 1);
-  const seed = t.gx * 13.7 + t.gy * 7.1;
-  const inset = 1;
+/** 一格甲板：木色 + 板缝 + 受光 + 破损裂纹。 */
+function drawDeck(ctx: CanvasRenderingContext2D, c: RaftCellView, view: RaftView): void {
+  const rect = tileRect(c.gx, c.gy);
+  const grow = clamp01(c.grow01 ?? 1);
+  const seed = c.gx * 13.7 + c.gy * 7.1;
+  const inset = 1.5;
+  const size = TILE - inset * 2;
 
   ctx.save();
-  ctx.translate(o.x + TILE_PX / 2, o.y + TILE_PX / 2);
+  ctx.translate(rect.x + TILE / 2, rect.y + TILE / 2);
   ctx.scale(0.55 + grow * 0.45, 0.55 + grow * 0.45);
   ctx.globalAlpha = 0.2 + grow * 0.8;
-  ctx.translate(-TILE_PX / 2, -TILE_PX / 2);
+  ctx.translate(-TILE / 2, -TILE / 2);
 
   const shade = hash01(seed);
   ctx.fillStyle = shade < 0.34 ? "#b07c4b" : shade < 0.7 ? "#bd8850" : "#a9763f";
-  ctx.fillRect(inset, inset, TILE_PX - inset * 2, TILE_PX - inset * 2);
+  ctx.fillRect(inset, inset, size, size);
 
-  // 木纹方向逐格交错：拼出来的筏面才不像一张贴图
-  const across = (t.gx + t.gy) % 2 === 0;
+  // 木纹方向逐格交错：拼出来的筏面才不像一张平铺贴图
+  const across = (c.gx + c.gy) % 2 === 0;
   ctx.strokeStyle = "rgba(74, 44, 20, 0.5)";
   ctx.lineWidth = 1.4;
   for (let i = 1; i < 4; i++) {
-    const at = (TILE_PX * i) / 4;
+    const at = (TILE * i) / 4;
     ctx.beginPath();
     if (across) {
-      ctx.moveTo(2, at);
-      ctx.lineTo(TILE_PX - 2, at);
+      ctx.moveTo(inset + 1, at);
+      ctx.lineTo(TILE - inset - 1, at);
     } else {
-      ctx.moveTo(at, 2);
-      ctx.lineTo(at, TILE_PX - 2);
+      ctx.moveTo(at, inset + 1);
+      ctx.lineTo(at, TILE - inset - 1);
     }
     ctx.stroke();
   }
 
-  // 顺光的一角 + 背光的一角，给平铺的甲板一点体积
-  ctx.fillStyle = "rgba(255, 226, 178, 0.22)";
-  ctx.fillRect(inset, inset, TILE_PX - inset * 2, 2);
+  ctx.fillStyle = "rgba(255, 226, 178, 0.2)";
+  ctx.fillRect(inset, inset, size, 2.5);
   ctx.fillStyle = "rgba(28, 16, 6, 0.3)";
-  ctx.fillRect(inset, TILE_PX - inset - 3, TILE_PX - inset * 2, 3);
+  ctx.fillRect(inset, TILE - inset - 3, size, 3);
 
-  // 破损裂纹：血量越低越花
-  const max = t.maxHp ?? DEFAULT_MAX_HP[t.id];
-  const wear = 1 - clamp01((t.hp ?? max) / max);
+  const max = maxHpOf(c);
+  const wear = 1 - clamp01((c.hp ?? max) / max);
   if (wear > 0.02) {
-    ctx.strokeStyle = `rgba(28, 12, 4, ${0.3 + wear * 0.5})`;
-    ctx.lineWidth = 1.2;
+    ctx.lineCap = "round";
     for (let i = 0; i < Math.ceil(wear * 3); i++) {
-      const x0 = 8 + hash01(seed + i * 3.3) * (TILE_PX - 16);
-      const y0 = 8 + hash01(seed + i * 5.9) * (TILE_PX - 16);
-      ctx.beginPath();
-      ctx.moveTo(x0, y0);
-      ctx.lineTo(x0 + 8 - hash01(seed + i) * 16, y0 + 7);
-      ctx.lineTo(x0 + 13 - hash01(seed + i * 2) * 22, y0 + 14);
-      ctx.stroke();
+      const x0 = 12 + hash01(seed + i * 3.3) * (TILE - 24);
+      const y0 = 12 + hash01(seed + i * 5.9) * (TILE - 26);
+      const lean = (hash01(seed + i) - 0.5) * 9;
+      const crack = (dx: number, dy: number) => {
+        ctx.beginPath();
+        ctx.moveTo(x0 + dx, y0 + dy);
+        ctx.lineTo(x0 + lean + dx, y0 + 6 + dy);
+        ctx.lineTo(x0 + lean * 0.3 + dx, y0 + 12 + dy);
+        ctx.stroke();
+      };
+      // 裂纹画两遍：暗的一遍是缝，错开一像素的亮线是被撬起来的木茬
+      ctx.strokeStyle = `rgba(28, 12, 4, ${0.35 + wear * 0.45})`;
+      ctx.lineWidth = 1.6;
+      crack(0, 0);
+      ctx.strokeStyle = `rgba(255, 226, 178, ${0.12 + wear * 0.16})`;
+      ctx.lineWidth = 0.9;
+      crack(1.4, -1.2);
     }
   }
 
-  if ((t.flash ?? 0) > 0) {
-    ctx.globalAlpha = Math.min(0.75, (t.flash ?? 0) * 3.4);
+  const flash = c.flash ?? 0;
+  if (flash > 0) {
+    ctx.globalAlpha = Math.min(0.7, flash * 3.4);
     ctx.fillStyle = view.palette.danger;
-    ctx.fillRect(inset, inset, TILE_PX - inset * 2, TILE_PX - inset * 2);
+    ctx.fillRect(inset, inset, size, size);
   }
   ctx.restore();
 }
 
 /**
- * 临水的边：白沫 + 亮边；朝着邻格的边：一道绳结。
- * 这一趟画完，筏的轮廓和「哪几块是连在一起的」就都读得出来了。
+ * 边沿：朝海的边补浮木与白沫，朝邻格的边打一个绳结。
+ * 这一趟画完，筏的轮廓与「哪几块连在一起」就都读得出来了。
  */
-function drawTileEdges(
+function drawCellEdges(
   ctx: CanvasRenderingContext2D,
-  t: RaftTileView,
+  c: RaftCellView,
   view: RaftView,
   occupied: ReadonlySet<string>,
 ): void {
-  const o = tileOrigin(t.gx, t.gy);
-  const grow = clamp01(t.grow01 ?? 1);
-  if (grow < 0.6) return;
+  if (clamp01(c.grow01 ?? 1) < 0.6) return;
+  const rect = tileRect(c.gx, c.gy);
 
   ctx.save();
-  for (const [dx, dy] of NEIGHBORS) {
-    const linked = occupied.has(tileKey(t.gx + dx, t.gy + dy));
-    // 这条边的两个端点
-    const x0 = o.x + (dx > 0 ? TILE_PX : 0);
-    const y0 = o.y + (dy > 0 ? TILE_PX : 0);
-    const horizontal = dy !== 0;
-    const ax = horizontal ? o.x : x0;
-    const ay = horizontal ? y0 : o.y;
-    const bx = horizontal ? o.x + TILE_PX : x0;
-    const by = horizontal ? y0 : o.y + TILE_PX;
+  for (const d of NEIGHBOR4) {
+    const horizontal = d.gy !== 0;
+    const ax = horizontal ? rect.x : rect.x + (d.gx > 0 ? TILE : 0);
+    const ay = horizontal ? rect.y + (d.gy > 0 ? TILE : 0) : rect.y;
+    const bx = horizontal ? rect.x + TILE : ax;
+    const by = horizontal ? ay : rect.y + TILE;
 
-    if (linked) {
-      // 绳结：把两格捆在一起
+    if (occupied.has(cellKey(c.gx + d.gx, c.gy + d.gy))) {
       const mx = (ax + bx) / 2;
       const my = (ay + by) / 2;
       ctx.strokeStyle = "#d9c08a";
       ctx.lineWidth = 2;
       ctx.beginPath();
       if (horizontal) {
-        ctx.moveTo(mx - 6, my - 3);
-        ctx.lineTo(mx + 6, my + 3);
-        ctx.moveTo(mx + 6, my - 3);
-        ctx.lineTo(mx - 6, my + 3);
+        ctx.moveTo(mx - 7, my - 3.5);
+        ctx.lineTo(mx + 7, my + 3.5);
+        ctx.moveTo(mx + 7, my - 3.5);
+        ctx.lineTo(mx - 7, my + 3.5);
       } else {
-        ctx.moveTo(mx - 3, my - 6);
-        ctx.lineTo(mx + 3, my + 6);
-        ctx.moveTo(mx + 3, my - 6);
-        ctx.lineTo(mx - 3, my + 6);
+        ctx.moveTo(mx - 3.5, my - 7);
+        ctx.lineTo(mx + 3.5, my + 7);
+        ctx.moveTo(mx + 3.5, my - 7);
+        ctx.lineTo(mx - 3.5, my + 7);
       }
       ctx.stroke();
       continue;
     }
 
-    // 临水：外沿一条浮木边 + 一条会呼吸的白沫
+    // 临水：一条浮木沿 + 一条会呼吸的白沫
     ctx.strokeStyle = "#7d5327";
-    ctx.lineWidth = 3;
+    ctx.lineWidth = 3.5;
     ctx.beginPath();
     ctx.moveTo(ax, ay);
     ctx.lineTo(bx, by);
     ctx.stroke();
 
-    const pulse = 0.35 + Math.abs(Math.sin(view.time * 2 + t.gx * 0.7 + t.gy * 1.3)) * 0.35;
-    ctx.strokeStyle = withAlpha(view.palette.foam, pulse);
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    for (let k = 0; k <= 6; k++) {
-      const u = k / 6;
-      const px = ax + (bx - ax) * u + (horizontal ? 0 : dx * 3);
-      const py = ay + (by - ay) * u + (horizontal ? dy * 3 : 0);
-      const wob = Math.sin(view.time * 3 + u * 6 + t.gx + t.gy) * 1.6;
-      if (k === 0) ctx.moveTo(px + (horizontal ? 0 : wob), py + (horizontal ? wob : 0));
-      else ctx.lineTo(px + (horizontal ? 0 : wob), py + (horizontal ? wob : 0));
+    // 白沫拆成一段段抖动的短弧：连成一条直线会像蓝图描边，不像拍在木头上的浪
+    const pulse = 0.3 + Math.abs(Math.sin(view.time * 2 + c.gx * 0.7 + c.gy * 1.3)) * 0.35;
+    const seed = c.gx * 3.1 + c.gy * 5.7 + d.gx * 1.9 + d.gy * 2.3;
+    ctx.lineCap = "round";
+    const segments = 4;
+    for (let k = 0; k < segments; k++) {
+      const bubble = Math.abs(Math.sin(view.time * 1.7 + seed + k * 1.6));
+      if (bubble < 0.3) continue;
+      // 每段的起点、长度都错开，白沫才像浪打上来而不是一圈虚线框
+      const jitter = hash01(seed + k * 2.7);
+      const head = (k + 0.08 + jitter * 0.34) / segments;
+      const span = (0.24 + bubble * 0.32) / segments;
+      ctx.strokeStyle = withAlpha(view.palette.foam, pulse * (0.35 + bubble * 0.5));
+      ctx.lineWidth = 1.6 + bubble * 1.4;
+      ctx.beginPath();
+      for (let s = 0; s <= 3; s++) {
+        const u = head + span * (s / 3);
+        const wob = Math.sin(view.time * 3 + u * 7 + seed) * 1.5;
+        const out = 0.8 + bubble * 1.8;
+        const px = ax + (bx - ax) * u + (horizontal ? wob : d.gx * out);
+        const py = ay + (by - ay) * u + (horizontal ? d.gy * out : wob);
+        if (s === 0) ctx.moveTo(px, py);
+        else ctx.lineTo(px, py);
+      }
+      ctx.stroke();
     }
-    ctx.stroke();
   }
   ctx.restore();
 }
 
-/** 一格建筑。原点搬到格子中心，各建筑自己在 ±24px 里画。 */
+/** 一格结构。原点搬到格心，各结构在 ±32px 里画。 */
 function drawStructure(
   ctx: CanvasRenderingContext2D,
-  t: RaftTileView,
+  c: RaftCellView,
   view: RaftView,
   occupied: ReadonlySet<string>,
 ): void {
-  const c = tileCenter(t.gx, t.gy);
-  const grow = clamp01(t.grow01 ?? 1);
+  const center = tileCenter(c.gx, c.gy);
+  const grow = clamp01(c.grow01 ?? 1);
   ctx.save();
-  ctx.translate(c.x, c.y);
+  ctx.translate(center.x, center.y);
   ctx.scale(0.5 + grow * 0.5, 0.5 + grow * 0.5);
   ctx.globalAlpha = 0.35 + grow * 0.65;
-  if (t.off) ctx.globalAlpha *= 0.55;
+  if (c.off) ctx.globalAlpha *= 0.55;
 
-  switch (t.id) {
-    case "hq":
-      drawHq(ctx, t, view);
+  switch (c.id) {
+    case "core":
+      drawCore(ctx, view);
       break;
     case "collector":
-      drawCollector(ctx, t, view);
+      drawCollector(ctx, c, view);
       break;
     case "purifier":
-      drawPurifier(ctx, t, view);
+      drawPurifier(ctx, c, view);
       break;
     case "fish":
-      drawFish(ctx, t, view, outwardDir(t, occupied));
+      drawFish(ctx, c, view, outwardDir(c, occupied));
       break;
     case "turret":
-      drawTurret(ctx, t, view);
+      drawTurret(ctx, c, view);
       break;
     default:
       break;
@@ -408,98 +380,124 @@ function drawStructure(
   ctx.restore();
 }
 
-/** 这一格朝海的方向（弧度）：四邻里没有筏的那些方向的合矢量。 */
-function outwardDir(t: RaftTileView, occupied: ReadonlySet<string>): number {
+/** 这一格朝海的方向（弧度）：四邻里没有筏的方向的合矢量。 */
+function outwardDir(c: RaftCellView, occupied: ReadonlySet<string>): number {
   let vx = 0;
   let vy = 0;
-  for (const [dx, dy] of NEIGHBORS) {
-    if (occupied.has(tileKey(t.gx + dx, t.gy + dy))) continue;
-    vx += dx;
-    vy += dy;
+  for (const d of NEIGHBOR4) {
+    if (occupied.has(cellKey(c.gx + d.gx, c.gy + d.gy))) continue;
+    vx += d.gx;
+    vy += d.gy;
   }
   if (vx === 0 && vy === 0) return Math.PI / 2;
   return Math.atan2(vy, vx);
 }
 
-/** 指挥中心：俯视看到的是屋顶、屋脊、烟囱、旗与天线灯。 */
-function drawHq(ctx: CanvasRenderingContext2D, t: RaftTileView, view: RaftView): void {
-  const r = 19;
-  ctx.fillStyle = "#6b4526";
-  ctx.fillRect(-r - 2, -r - 2, (r + 2) * 2, (r + 2) * 2);
-  ctx.fillStyle = "#5f7d8c";
+/** 指挥中心：俯视是屋顶、屋脊、天窗、烟囱、旗与天线灯。 */
+function drawCore(ctx: CanvasRenderingContext2D, view: RaftView): void {
+  const r = 25;
+
+  // 四坡屋顶（俯视经典画法：外框 + 四条对角脊线收到中间的平脊）
+  ctx.fillStyle = "#4d3115";
+  ctx.fillRect(-r - 3, -r - 3, (r + 3) * 2, (r + 3) * 2);
+  ctx.fillStyle = "#2f7f7a";
   ctx.fillRect(-r, -r, r * 2, r * 2);
 
-  // 屋脊 + 两坡的明暗
-  ctx.fillStyle = "rgba(255,255,255,0.14)";
-  ctx.fillRect(-r, -r, r * 2, r);
-  ctx.strokeStyle = "#3d525c";
-  ctx.lineWidth = 2;
+  const ridge = r * 0.34;
+  ctx.fillStyle = "rgba(255, 248, 224, 0.26)";
   ctx.beginPath();
-  ctx.moveTo(-r, 0);
-  ctx.lineTo(r, 0);
+  ctx.moveTo(-r, -r);
+  ctx.lineTo(r, -r);
+  ctx.lineTo(ridge, -ridge);
+  ctx.lineTo(-ridge, -ridge);
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillStyle = "rgba(4, 26, 30, 0.3)";
+  ctx.beginPath();
+  ctx.moveTo(-r, r);
+  ctx.lineTo(r, r);
+  ctx.lineTo(ridge, ridge);
+  ctx.lineTo(-ridge, ridge);
+  ctx.closePath();
+  ctx.fill();
+
+  ctx.strokeStyle = "rgba(10, 40, 42, 0.55)";
+  ctx.lineWidth = 1.6;
+  ctx.beginPath();
+  for (const [sx, sy] of [[-1, -1], [1, -1], [1, 1], [-1, 1]] as const) {
+    ctx.moveTo(sx * r, sy * r);
+    ctx.lineTo(sx * ridge, sy * ridge);
+  }
+  ctx.strokeRect(-ridge, -ridge, ridge * 2, ridge * 2);
   ctx.stroke();
 
-  // 天窗：夜里透出暖光
-  const glow = 0.5 + Math.abs(Math.sin(view.time * 1.1)) * 0.35;
-  ctx.fillStyle = withAlpha(STRUCTURE_TINT.hq, glow);
-  ctx.fillRect(-7, -12, 14, 8);
+  // 中间的天窗：夜里就是全筏最亮的一点
+  const glow = 0.55 + Math.abs(Math.sin(view.time * 1.1)) * 0.4;
+  ctx.fillStyle = withAlpha(STRUCTURE_TINT.core, glow);
+  ctx.fillRect(-ridge + 2, -ridge + 2, ridge * 2 - 4, ridge * 2 - 4);
   ctx.strokeStyle = "rgba(40,24,10,0.7)";
   ctx.lineWidth = 1.2;
-  ctx.strokeRect(-7, -12, 14, 8);
+  ctx.strokeRect(-ridge + 2, -ridge + 2, ridge * 2 - 4, ridge * 2 - 4);
 
-  // 烟囱
+  // 太阳能板 + 烟囱：两个一眼认得出「这里有人住」的小配件
+  ctx.fillStyle = "#1d3a52";
+  ctx.fillRect(-r + 4, r - 13, 16, 9);
+  ctx.strokeStyle = "rgba(150, 200, 230, 0.5)";
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(-r + 4, r - 8.5);
+  ctx.lineTo(-r + 20, r - 8.5);
+  ctx.stroke();
   ctx.fillStyle = "#42525a";
-  ctx.fillRect(r - 10, r - 12, 7, 7);
+  ctx.fillRect(r - 14, r - 14, 9, 9);
 
   // 天线与闪灯
   ctx.strokeStyle = "#cfd8dd";
-  ctx.lineWidth = 1.6;
+  ctx.lineWidth = 1.8;
   ctx.beginPath();
-  ctx.moveTo(-r + 6, -r + 6);
-  ctx.lineTo(-r + 2, -r + 2);
+  ctx.moveTo(-r + 9, -r + 9);
+  ctx.lineTo(-r + 3, -r + 3);
   ctx.stroke();
   ctx.fillStyle = Math.sin(view.time * 4) > 0 ? view.palette.danger : "rgba(120,40,50,0.75)";
   ctx.beginPath();
-  ctx.arc(-r + 2, -r + 2, 2.6, 0, Math.PI * 2);
+  ctx.arc(-r + 3, -r + 3, 3.2, 0, Math.PI * 2);
   ctx.fill();
 
-  // 旗：绕着旗杆摆
-  const flag = Math.sin(view.time * 5) * 3;
+  // 旗
+  const flag = Math.sin(view.time * 5) * 3.5;
   ctx.strokeStyle = "#a9763f";
+  ctx.lineWidth = 2;
   ctx.beginPath();
-  ctx.moveTo(r - 5, -r + 4);
-  ctx.lineTo(r - 5, -r + 16);
+  ctx.moveTo(r - 6, -r + 5);
+  ctx.lineTo(r - 6, -r + 20);
   ctx.stroke();
   ctx.fillStyle = view.palette.accent;
   ctx.beginPath();
-  ctx.moveTo(r - 5, -r + 4);
-  ctx.lineTo(r - 5 + 11, -r + 7 + flag);
-  ctx.lineTo(r - 5, -r + 11);
+  ctx.moveTo(r - 6, -r + 5);
+  ctx.lineTo(r - 6 + 13, -r + 9 + flag);
+  ctx.lineTo(r - 6, -r + 13);
   ctx.closePath();
   ctx.fill();
-  void t;
 }
 
-/** 收集器：圆网 + 十字网骨 + 网里的料堆（随 work01 长）。 */
-function drawCollector(ctx: CanvasRenderingContext2D, t: RaftTileView, view: RaftView): void {
-  const r = 17;
-  const spin = view.time * 0.5;
-
+/** 收集器：圆网 + 转动的网骨 + 网里的料堆（随进度长）。 */
+function drawCollector(ctx: CanvasRenderingContext2D, c: RaftCellView, view: RaftView): void {
+  const r = 22;
   ctx.fillStyle = "rgba(12, 34, 44, 0.6)";
   ctx.beginPath();
   ctx.arc(0, 0, r, 0, Math.PI * 2);
   ctx.fill();
 
   ctx.strokeStyle = STRUCTURE_TINT.collector;
-  ctx.lineWidth = 2.4;
+  ctx.lineWidth = 2.6;
   ctx.beginPath();
   ctx.arc(0, 0, r, 0, Math.PI * 2);
   ctx.stroke();
 
   ctx.save();
-  ctx.rotate(spin);
+  ctx.rotate(view.time * 0.5);
   ctx.strokeStyle = withAlpha(STRUCTURE_TINT.collector, 0.5);
-  ctx.lineWidth = 1.1;
+  ctx.lineWidth = 1.2;
   for (let i = 0; i < 6; i++) {
     const a = (i / 6) * Math.PI;
     ctx.beginPath();
@@ -512,167 +510,214 @@ function drawCollector(ctx: CanvasRenderingContext2D, t: RaftTileView, view: Raf
   ctx.stroke();
   ctx.restore();
 
-  // 网住的碎料
-  const fill = clamp01(t.work01 ?? 0);
+  const fill = workOf(c);
   if (fill > 0.02) {
     ctx.fillStyle = "#c08b52";
     const n = 1 + Math.floor(fill * 4);
     for (let i = 0; i < n; i++) {
       const a = i * 1.9 + view.time * 0.3;
       ctx.save();
-      ctx.translate(Math.cos(a) * r * 0.4, Math.sin(a) * r * 0.4);
+      ctx.translate(Math.cos(a) * r * 0.42, Math.sin(a) * r * 0.42);
       ctx.rotate(a);
-      ctx.fillRect(-5, -1.8, 10, 3.6);
+      ctx.fillRect(-6, -2, 12, 4);
       ctx.restore();
     }
   }
 }
 
-/** 净水机：桶 + 环形水位表 + 冷凝罩 + 蒸汽。 */
-function drawPurifier(ctx: CanvasRenderingContext2D, t: RaftTileView, view: RaftView): void {
-  const r = 15;
-  ctx.fillStyle = "#4b565d";
+/** 净水机：桶 + 冷凝罩 + 环形水位表 + 蒸汽。 */
+function drawPurifier(ctx: CanvasRenderingContext2D, c: RaftCellView, view: RaftView): void {
+  const r = 19;
+  ctx.fillStyle = "#39434a";
   ctx.beginPath();
   ctx.arc(0, 0, r, 0, Math.PI * 2);
   ctx.fill();
-  ctx.fillStyle = "#5d6b73";
+  ctx.fillStyle = "#8a99a3";
   ctx.beginPath();
   ctx.arc(0, 0, r - 3, 0, Math.PI * 2);
   ctx.fill();
-
-  // 冷凝罩：一片压在桶上的玻璃
-  ctx.fillStyle = "rgba(180, 240, 255, 0.28)";
+  // 冷凝罩：一块反光的玻璃盖，高光偏在左上
+  ctx.fillStyle = "rgba(203, 245, 255, 0.55)";
   ctx.beginPath();
-  ctx.arc(0, 0, r - 5, 0, Math.PI * 2);
+  ctx.arc(0, 0, r - 6, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = "rgba(255, 255, 255, 0.45)";
+  ctx.beginPath();
+  ctx.arc(-r * 0.28, -r * 0.28, r * 0.26, 0, Math.PI * 2);
   ctx.fill();
 
-  // 环形水位表
-  const fill = clamp01(t.work01 ?? 0);
-  ctx.strokeStyle = "rgba(6, 20, 28, 0.65)";
-  ctx.lineWidth = 3.4;
+  const fill = workOf(c);
+  ctx.strokeStyle = "rgba(6, 20, 28, 0.7)";
+  ctx.lineWidth = 5;
   ctx.beginPath();
-  ctx.arc(0, 0, r + 3, 0, Math.PI * 2);
+  ctx.arc(0, 0, r + 5, 0, Math.PI * 2);
   ctx.stroke();
   ctx.strokeStyle = STRUCTURE_TINT.purifier;
+  ctx.lineWidth = 4;
   ctx.beginPath();
-  ctx.arc(0, 0, r + 3, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * fill);
+  ctx.arc(0, 0, r + 5, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * fill);
   ctx.stroke();
 
-  // 出水管
   ctx.strokeStyle = "#8792a0";
   ctx.lineWidth = 3;
   ctx.beginPath();
-  ctx.moveTo(r - 6, 4);
-  ctx.lineTo(r + 8, 10);
+  ctx.moveTo(r - 7, 5);
+  ctx.lineTo(r + 9, 12);
   ctx.stroke();
 
-  // 蒸汽
   ctx.fillStyle = view.palette.foam;
   for (let i = 0; i < 3; i++) {
     const u = ((view.time * 0.55 + i / 3) % 1 + 1) % 1;
     ctx.globalAlpha = (1 - u) * 0.3;
     ctx.beginPath();
-    ctx.arc(Math.sin(u * 5 + i) * 5, -8 - u * 14, 3 + u * 6, 0, Math.PI * 2);
+    ctx.arc(Math.sin(u * 5 + i) * 6, -10 - u * 16, 3.5 + u * 6, 0, Math.PI * 2);
     ctx.fill();
   }
   ctx.globalAlpha = 1;
 }
 
-/** 钓鱼台：栈桥 + 伸向海面的竿 + 浮标（浮标跟着涌浪抖）。 */
+/** 钓鱼台：台面 + 伸向海面的竿 + 随浪抖的浮标 + 台角的鱼获。 */
 function drawFish(
   ctx: CanvasRenderingContext2D,
-  t: RaftTileView,
+  c: RaftCellView,
   view: RaftView,
   dir: number,
 ): void {
   ctx.save();
   ctx.rotate(dir);
 
-  // 台面
-  ctx.fillStyle = "#8d5f36";
-  ctx.fillRect(-14, -12, 24, 24);
+  // 栈桥：一块比甲板浅的台面 + 两道栏杆，跟脚下的地板区分开
+  ctx.fillStyle = "#d9b070";
+  ctx.fillRect(-18, -15, 32, 30);
   ctx.strokeStyle = "#5f3d1e";
-  ctx.lineWidth = 1.4;
-  ctx.strokeRect(-14, -12, 24, 24);
-  ctx.fillStyle = "rgba(255,226,178,0.2)";
-  ctx.fillRect(-14, -12, 24, 3);
+  ctx.lineWidth = 1.6;
+  ctx.strokeRect(-18, -15, 32, 30);
+  ctx.strokeStyle = "rgba(95, 61, 30, 0.75)";
+  ctx.lineWidth = 2;
+  for (const y of [-15, 15]) {
+    ctx.beginPath();
+    ctx.moveTo(-18, y);
+    ctx.lineTo(14, y);
+    ctx.stroke();
+  }
+  ctx.fillStyle = "rgba(255,244,214,0.35)";
+  ctx.fillRect(-18, -15, 32, 3.5);
 
-  // 竿：从台面斜伸出去
-  const swing = Math.sin(view.time * 0.9) * 2.5;
-  ctx.strokeStyle = "#e0c48a";
-  ctx.lineWidth = 2.2;
+  // 鱼桶：装鱼获的地方，也是这格的辨识点
+  ctx.fillStyle = "#6f8fa3";
   ctx.beginPath();
-  ctx.moveTo(-6, 6);
-  ctx.quadraticCurveTo(14, -6, 30, -2 + swing);
+  ctx.arc(-9, 6, 7.5, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = "#3d5464";
+  ctx.lineWidth = 1.4;
   ctx.stroke();
 
-  // 线与浮标：浮标落在筏外的水面上
-  const bite = clamp01(t.work01 ?? 0) > 0.8 ? Math.sin(view.time * 16) * 2.5 : 0;
-  const fx = 44;
-  const fy = 6 + swing + bite;
+  const swing = Math.sin(view.time * 0.9) * 3;
+  ctx.strokeStyle = "#e0c48a";
+  ctx.lineWidth = 2.4;
+  ctx.beginPath();
+  ctx.moveTo(-8, 8);
+  ctx.quadraticCurveTo(18, -8, 38, -3 + swing);
+  ctx.stroke();
+
+  const bite = workOf(c) > 0.8 ? Math.sin(view.time * 16) * 3 : 0;
+  const fx = 54;
+  const fy = 8 + swing + bite;
   ctx.strokeStyle = "rgba(240, 248, 255, 0.55)";
   ctx.lineWidth = 1;
   ctx.beginPath();
-  ctx.moveTo(30, -2 + swing);
+  ctx.moveTo(38, -3 + swing);
   ctx.lineTo(fx, fy);
   ctx.stroke();
 
   ctx.fillStyle = view.palette.danger;
   ctx.beginPath();
-  ctx.arc(fx, fy, 3.4, Math.PI, 0);
+  ctx.arc(fx, fy, 4, Math.PI, 0);
   ctx.fill();
   ctx.fillStyle = view.palette.foam;
   ctx.beginPath();
-  ctx.arc(fx, fy, 3.4, 0, Math.PI);
+  ctx.arc(fx, fy, 4, 0, Math.PI);
   ctx.fill();
 
-  // 鱼获堆在台角
-  const catchN = Math.floor(clamp01(t.work01 ?? 0) * 3);
+  // 桶里的鱼：随进度多一条
+  const caught = Math.floor(workOf(c) * 3);
   ctx.fillStyle = "#9be86b";
-  for (let i = 0; i < catchN; i++) {
+  for (let i = 0; i < caught; i++) {
     ctx.beginPath();
-    ctx.ellipse(-9 + i * 5, 8, 4, 2.2, 0.4, 0, Math.PI * 2);
+    ctx.ellipse(-12 + i * 3.4, 4 + i * 2, 4.5, 2.4, 0.4 + i * 0.5, 0, Math.PI * 2);
     ctx.fill();
   }
   ctx.restore();
 }
 
-/** 炮塔：沙袋底座 + 转台 + 炮管（朝 `aim`）+ 开火焰。 */
-function drawTurret(ctx: CanvasRenderingContext2D, t: RaftTileView, view: RaftView): void {
-  const r = 15;
-  ctx.fillStyle = "#6f6250";
-  for (let i = 0; i < 6; i++) {
-    const a = (i / 6) * Math.PI * 2;
+/** 炮塔：沙袋底座 + 转台 + 炮管（朝 `aim`，没给就自己扫）+ 开火焰。 */
+function drawTurret(ctx: CanvasRenderingContext2D, c: RaftCellView, view: RaftView): void {
+  const r = 21;
+
+  // 沙袋围一圈：小而密，围出一个清楚的圆，别糊成一坨
+  for (let i = 0; i < 10; i++) {
+    const a = (i / 10) * Math.PI * 2;
+    ctx.fillStyle = i % 2 === 0 ? "#b39c78" : "#95805f";
+    ctx.save();
+    ctx.translate(Math.cos(a) * r, Math.sin(a) * r);
+    ctx.rotate(a + Math.PI / 2);
     ctx.beginPath();
-    ctx.ellipse(Math.cos(a) * r, Math.sin(a) * r, 7, 4.6, a, 0, Math.PI * 2);
+    ctx.ellipse(0, 0, 7, 4.4, 0, 0, Math.PI * 2);
     ctx.fill();
+    ctx.restore();
   }
 
-  ctx.fillStyle = "#3f4952";
+  // 转台：深色底盘 + 亮环，炮管压在上面才看得出层次
+  ctx.fillStyle = "#2c3640";
   ctx.beginPath();
-  ctx.arc(0, 0, r * 0.72, 0, Math.PI * 2);
+  ctx.arc(0, 0, r * 0.66, 0, Math.PI * 2);
   ctx.fill();
+  ctx.strokeStyle = "#9aa7b3";
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.arc(0, 0, r * 0.66, 0, Math.PI * 2);
+  ctx.stroke();
 
+  // 没有目标时慢慢扫海面，看起来像在警戒而不是卡死
+  const aim = c.aim ?? Math.sin(view.time * 0.35 + c.gx * 1.7 + c.gy) * 0.9 - Math.PI / 2;
   ctx.save();
-  ctx.rotate(t.aim ?? -Math.PI / 2);
-  ctx.fillStyle = "#8792a0";
-  ctx.fillRect(0, -4, 26, 8);
+  ctx.rotate(aim);
+
+  ctx.fillStyle = "#c3ccd6";
+  ctx.strokeStyle = "#2c3640";
+  ctx.lineWidth = 1.6;
+  ctx.beginPath();
+  ctx.rect(2, -4.5, 28, 9);
+  ctx.fill();
+  ctx.stroke();
   ctx.fillStyle = STRUCTURE_TINT.turret;
-  ctx.fillRect(21, -5, 6, 10);
-  ctx.fillStyle = "#5b6672";
+  ctx.beginPath();
+  ctx.rect(26, -6, 7, 12);
+  ctx.fill();
+  ctx.stroke();
+
+  // 弹箱压在转台尾部，配重也是造型
+  ctx.fillStyle = "#6c5a3f";
+  ctx.beginPath();
+  ctx.rect(-14, -6, 11, 12);
+  ctx.fill();
+  ctx.stroke();
+
+  ctx.fillStyle = "#8a97a4";
   ctx.beginPath();
   ctx.arc(0, 0, 8, 0, Math.PI * 2);
   ctx.fill();
+  ctx.stroke();
 
-  const flash = t.flash ?? 0;
+  const flash = c.flash ?? 0;
   if (flash > 0.02) {
     ctx.globalAlpha = Math.min(1, flash * 6);
     ctx.fillStyle = view.palette.accent;
     ctx.beginPath();
-    ctx.moveTo(27, 0);
-    ctx.lineTo(26, -7);
-    ctx.lineTo(38, 0);
-    ctx.lineTo(26, 7);
+    ctx.moveTo(33, 0);
+    ctx.lineTo(31, -8);
+    ctx.lineTo(45, 0);
+    ctx.lineTo(31, 8);
     ctx.closePath();
     ctx.fill();
   }
@@ -680,14 +725,14 @@ function drawTurret(ctx: CanvasRenderingContext2D, t: RaftTileView, view: RaftVi
 }
 
 /** 血条：只在掉过血的格子上显示，满血不占画面。 */
-function drawHpBar(ctx: CanvasRenderingContext2D, t: RaftTileView, view: RaftView): void {
-  const max = t.maxHp ?? DEFAULT_MAX_HP[t.id];
-  const hp = t.hp ?? max;
+function drawHpBar(ctx: CanvasRenderingContext2D, c: RaftCellView, view: RaftView): void {
+  const max = maxHpOf(c);
+  const hp = c.hp ?? max;
   if (hp >= max) return;
-  const o = tileOrigin(t.gx, t.gy);
-  const w = TILE_PX - 12;
-  const x = o.x + 6;
-  const y = o.y + TILE_PX - 6;
+  const rect = tileRect(c.gx, c.gy);
+  const w = TILE - 16;
+  const x = rect.x + 8;
+  const y = rect.y + TILE - 7;
   const f = clamp01(hp / max);
   ctx.save();
   ctx.fillStyle = "rgba(6, 16, 24, 0.75)";
@@ -697,27 +742,28 @@ function drawHpBar(ctx: CanvasRenderingContext2D, t: RaftTileView, view: RaftVie
   ctx.restore();
 }
 
-/** 可建区网格：建造模式下铺一层淡格线，玩家看得见能放到哪。 */
-export function drawBuildGrid(ctx: CanvasRenderingContext2D, view: RaftView): void {
-  const r = gridRect();
+/** 风暴预警落点：闪着的红十字，告诉玩家这几格要挨打。 */
+export function drawStormMark(
+  ctx: CanvasRenderingContext2D,
+  gx: number,
+  gy: number,
+  view: RaftView,
+): void {
+  const c = tileCenter(gx, gy);
+  const pulse = 0.4 + Math.abs(Math.sin(view.time * 8)) * 0.6;
   ctx.save();
-  ctx.strokeStyle = withAlpha(view.palette.ink, 0.12);
-  ctx.lineWidth = 1;
+  ctx.globalAlpha = pulse;
+  ctx.strokeStyle = view.palette.danger;
+  ctx.lineWidth = 3;
+  const r = TILE * 0.3;
   ctx.beginPath();
-  for (let gx = 0; gx <= TILE.gridW; gx++) {
-    const x = r.x + gx * TILE_PX;
-    ctx.moveTo(x, r.y);
-    ctx.lineTo(x, r.y + r.h);
-  }
-  for (let gy = 0; gy <= TILE.gridH; gy++) {
-    const y = r.y + gy * TILE_PX;
-    ctx.moveTo(r.x, y);
-    ctx.lineTo(r.x + r.w, y);
-  }
+  ctx.moveTo(c.x - r, c.y - r);
+  ctx.lineTo(c.x + r, c.y + r);
+  ctx.moveTo(c.x + r, c.y - r);
+  ctx.lineTo(c.x - r, c.y + r);
   ctx.stroke();
-  ctx.strokeStyle = withAlpha(view.palette.accent, 0.22);
-  ctx.lineWidth = 2;
-  ctx.strokeRect(r.x, r.y, r.w, r.h);
+  ctx.globalAlpha = pulse * 0.5;
+  ctx.strokeRect(c.x - TILE / 2 + 2, c.y - TILE / 2 + 2, TILE - 4, TILE - 4);
   ctx.restore();
 }
 
@@ -728,20 +774,19 @@ export function drawTileCursor(
   gy: number,
   view: RaftView,
 ): void {
-  const o = tileOrigin(gx, gy);
+  const r = tileRect(gx, gy);
   ctx.save();
   ctx.strokeStyle = view.palette.ink;
   ctx.globalAlpha = 0.45 + Math.abs(Math.sin(view.time * 3)) * 0.4;
   ctx.lineWidth = 2;
   ctx.setLineDash([6, 4]);
-  ctx.strokeRect(o.x + 1, o.y + 1, TILE_PX - 2, TILE_PX - 2);
+  ctx.strokeRect(r.x + 1, r.y + 1, r.w - 2, r.h - 2);
   ctx.restore();
 }
 
 /**
- * 建造预览：半透明的目标建筑 + 能不能建的底色。
- * `ok` 由 sim 综合「网格内 / 邻接 / 库存」三条算出来（ARCHITECTURE §5.1），
- * 绘制不重复判定，只负责表现。
+ * 建造预览：半透明的目标结构 + 能不能建的底色。
+ * `ok` 由 sim 算（网格合法 + 邻接 + 买得起），绘制不重复判定，只管表现。
  */
 export function drawGhost(
   ctx: CanvasRenderingContext2D,
@@ -751,22 +796,54 @@ export function drawGhost(
   ok: boolean,
   view: RaftView,
 ): void {
-  const o = tileOrigin(gx, gy);
+  const rect = tileRect(gx, gy);
   const tint = ok ? STRUCTURE_TINT[id] : view.palette.danger;
   ctx.save();
   ctx.globalAlpha = 0.26 + Math.abs(Math.sin(view.time * 4)) * 0.12;
   ctx.fillStyle = tint;
-  ctx.fillRect(o.x + 1, o.y + 1, TILE_PX - 2, TILE_PX - 2);
+  ctx.fillRect(rect.x + 1, rect.y + 1, rect.w - 2, rect.h - 2);
   ctx.globalAlpha = 0.85;
   ctx.strokeStyle = tint;
   ctx.lineWidth = 2;
   ctx.setLineDash([5, 4]);
-  ctx.strokeRect(o.x + 1, o.y + 1, TILE_PX - 2, TILE_PX - 2);
+  ctx.strokeRect(rect.x + 1, rect.y + 1, rect.w - 2, rect.h - 2);
   ctx.setLineDash([]);
 
   if (id !== "floor") {
     ctx.globalAlpha = 0.5;
-    drawStructure(ctx, { gx, gy, id, work01: 0.5, grow01: 1 }, view, new Set([tileKey(gx, gy)]));
+    drawStructure(ctx, { gx, gy, id, work01: 0.5 }, view, new Set([cellKey(gx, gy)]));
+  }
+  ctx.restore();
+}
+
+/**
+ * 可扩建的空位：沿现有筏面的四周画一圈虚格。
+ * 建造模式下调用，玩家一眼看到筏能往哪长（对应 sim 的 `isAdjacentToRaft`）。
+ */
+export function drawBuildSlots(
+  ctx: CanvasRenderingContext2D,
+  cells: readonly RaftCellView[],
+  view: RaftView,
+): void {
+  const occupied = new Set<string>();
+  for (const c of cells) occupied.add(cellKey(c.gx, c.gy));
+  const seen = new Set<string>();
+
+  ctx.save();
+  ctx.strokeStyle = view.palette.accent;
+  ctx.globalAlpha = 0.2 + Math.abs(Math.sin(view.time * 2.4)) * 0.12;
+  ctx.lineWidth = 2;
+  ctx.setLineDash([5, 6]);
+  for (const c of cells) {
+    for (const d of NEIGHBOR4) {
+      const gx = c.gx + d.gx;
+      const gy = c.gy + d.gy;
+      const key = cellKey(gx, gy);
+      if (seen.has(key) || occupied.has(key)) continue;
+      seen.add(key);
+      const r = tileRect(gx, gy);
+      ctx.strokeRect(r.x + 4, r.y + 4, r.w - 8, r.h - 8);
+    }
   }
   ctx.restore();
 }
