@@ -1,9 +1,8 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { LANES, PLAYER } from "../data/constants";
+import { FEEL, LANES, PLAYER } from "../data/constants";
 import { hopCurve, Player } from "../entities/player";
 import { chuteBank } from "../game/camera";
-import { FALL_TIME } from "../game/physics";
 
 describe("Player lane switching", () => {
   it("switches lanes once the current transition completes", () => {
@@ -120,19 +119,19 @@ describe("Player washing off the chute", () => {
     assert.ok(player.collisionLane > LANES.max, "the bend should slide the raft past its lane");
     assert.equal(player.fallen, false);
 
-    const held = stepUntil(player, () => player.fallen, FALL_TIME * 3);
-    assert.ok(Math.abs(held - FALL_TIME) < 0.05, `washed out after ${held}s, not ${FALL_TIME}s`);
+    const held = stepUntil(player, () => player.fallen, FEEL.fallTimeS * 3);
+    assert.ok(Math.abs(held - FEEL.fallTimeS) < 0.05, `washed out after ${held}s, not ${FEEL.fallTimeS}s`);
     assert.equal(player.hp, 0);
   });
 
   it("pays the wipeout timer back once the raft is over water again", () => {
     const player = inLane(LANES.max, HARD_BEND_Z);
     stepUntil(player, () => player.offChute, 2);
-    stepUntil(player, () => false, FALL_TIME * 0.5);
+    stepUntil(player, () => false, FEEL.fallTimeS * 0.5);
     assert.ok(player.fallT > 0);
 
     assert.equal(player.trySwitch(-1), true);
-    stepUntil(player, () => false, FALL_TIME * 2);
+    stepUntil(player, () => false, FEEL.fallTimeS * 2);
     assert.equal(player.offChute, false);
     assert.equal(player.fallT, 0);
     assert.equal(player.fallen, false);

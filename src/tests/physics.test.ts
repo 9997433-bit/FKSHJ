@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { applyBoost, applyHit, comboBonus, stepSpeed, type Motion } from "../game/physics";
+import { FEEL, SPEED } from "../data/constants";
+import { applyBoost, applyHit, applyWallScrape, comboBonus, stepSpeed, takeKick, type Motion } from "../game/physics";
 
 describe("physics", () => {
   it("comboBonus matches spec", () => {
@@ -14,6 +15,16 @@ describe("physics", () => {
     applyHit(m);
     assert.ok(m.speed < 200);
     assert.equal(m.boostLeft, 0);
+    assert.equal(m.hitstopLeft, FEEL.hitstopS);
+    assert.equal(takeKick(m), FEEL.hitKick);
+    assert.equal(takeKick(m), 0);
+  });
+
+  it("queues camera punches without touching the camera", () => {
+    const m: Motion = { speed: SPEED.base, boostLeft: 0 };
+    applyWallScrape(m);
+    applyBoost(m);
+    assert.ok(Math.abs(takeKick(m) - (FEEL.wallKick + FEEL.boostKick)) < 1e-9);
   });
 
   it("boost raises speed over time", () => {

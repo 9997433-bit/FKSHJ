@@ -63,6 +63,7 @@ function finish(): void {
     distance: r.distance,
     coins: r.coins,
     isNew: r.isNew,
+    endedBy: r.fallen ? "washout" : "deflated",
     onRetry: startRun,
     onTitle: showTitle,
     audio: audioControl(),

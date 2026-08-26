@@ -66,7 +66,7 @@
 - `menus.ts` 内联帮助 / 统计格 / Enter 全场景 / 自动聚焦：已合并生效。
 - `hud.ts` 连击 pop / 速度条 / 主题徽章 / 心形 HP：已合并生效。
 - `session.ts` 去硬编码色值：已完成，`rg "#[0-9a-fA-F]{6}" src/session.ts` 零命中。
-- 受击屏震（physics → `kickCamera`）、金币连击音调上行（`coinStep`）：已落地。
+- 受击屏震（session 读 `Motion.kick` → `kickCamera`）、金币连击音调上行（`coinStep`）：已落地。
 
 ### Round 2（合并审计，对照 ROUND2_BRIEF）
 - **关卡流式生成**：双 LCG 游标续生，分块与一次生成一致；长局探针 `worldEmptyAhead: false`。

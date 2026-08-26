@@ -49,7 +49,7 @@ export function syncCamera(z: number, time: number): void {
   cam.swayY = Math.sin(time * 1.7) * 2.4 + Math.sin(time * 0.53) * 1.6 + Math.cos(time * 63) * 5.5 * kick;
 }
 
-/** Punch the camera on impact. Sim code owns the events, so it pushes them here. */
+/** Punch the camera on impact. Session drains Motion.kick and forwards it here. */
 export function kickCamera(power = 1): void {
   cam.shake = Math.min(1, cam.shake + power);
 }

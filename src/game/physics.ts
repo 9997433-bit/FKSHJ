@@ -1,5 +1,4 @@
 import { FEEL, LANES, SPEED } from "../data/constants";
-import { kickCamera } from "./camera";
 
 export type Motion = {
   speed: number;
@@ -10,29 +9,15 @@ export type Motion = {
   bank?: number;
   /** Seconds of impact freeze still owed. Drain it with `takeHitstop` before stepping the world. */
   hitstopLeft?: number;
+  /** Accumulated camera punch this frame. Session drains it with `takeKick`. */
+  kick?: number;
 };
 
 /**
- * Chute cross-section, in lane units out from the centre line: where the water floor gives
- * out and where the wall lip sits above it. The sim owns these because the fall rule is
- * geometry; src/world/track.ts paints the same two numbers.
+ * Chute cross-section, in lane units: the painted rim (track.ts) and the fall edge
+ * (offChuteDepth) both read FEEL so they cannot drift apart.
  */
-export const CHUTE = { floor: 2.85, wall: 3.3 } as const;
-
-/** Lanes of outward slide a full-tilt bank buys once the raft is out on the rim. */
-const SLIP_MAX = 1.05;
-/** Bank the flow still holds you through, so only the sharpest part of a bend throws you out. */
-const SLIP_HOLD = 0.45;
-/** Lane where the flat floor starts handing the raft over to the banked wall. */
-const RIM_LANE = 1.4;
-/** Approach rate, per second, toward the slide the bank is asking for. */
-const SLIP_RATE = 3.4;
-/** In the air there is no water underneath to push you further up the wall. */
-const AIR_SLIP = 0.2;
-/** Seconds off the flow before the raft is gone (GAME_SPEC §4.4). */
-export const FALL_TIME = 1.5;
-/** Getting back over water pays the timer down faster than it filled. */
-const FALL_RECOVER = 1.8;
+export const CHUTE = { floor: FEEL.chuteFloor, wall: FEEL.chuteWall } as const;
 
 function clamp01(v: number): number {
   return v < 0 ? 0 : v > 1 ? 1 : v;
@@ -73,12 +58,16 @@ export function stepSpeed(m: Motion, dt: number, bank = m.bank ?? 0): number {
   return m.speed;
 }
 
+function addKick(m: Motion, power: number): void {
+  m.kick = (m.kick ?? 0) + power;
+}
+
 export function applyHit(m: Motion): void {
   m.speed *= SPEED.hitMul;
   m.boostLeft = 0;
   m.boostSpan = undefined;
   m.hitstopLeft = FEEL.hitstopS;
-  kickCamera(FEEL.hitKick);
+  addKick(m, FEEL.hitKick);
 }
 
 /** Seconds of freeze still owed after a hit; 0 when the world should run at full speed. */
@@ -98,21 +87,28 @@ export function takeHitstop(m: Motion, dt: number): number {
   return dt - eaten;
 }
 
-/** Grinding the chute edge (GAME_SPEC §4.2): scrubs speed and rattles the camera. */
+/** Drain the camera punch queued this frame. Session forwards the value to kickCamera. */
+export function takeKick(m: Motion): number {
+  const kick = m.kick ?? 0;
+  m.kick = 0;
+  return kick;
+}
+
+/** Grinding the chute edge (GAME_SPEC §4.2): scrubs speed and queues a camera punch. */
 export function applyWallScrape(m: Motion): void {
   m.speed *= SPEED.wallPenalty;
-  kickCamera(FEEL.wallKick);
+  addKick(m, FEEL.wallKick);
 }
 
 export function applyBoost(m: Motion): void {
   m.boostSpan = SPEED.boostMs / 1000;
   m.boostLeft = m.boostSpan;
-  kickCamera(FEEL.boostKick);
+  addKick(m, FEEL.boostKick);
 }
 
 /** How far the raft has left the flat floor for the banked rim: 0 down the middle, 1 out in the last lane. */
 export function rimGrip(lane: number): number {
-  return clamp01((Math.abs(lane) - RIM_LANE) / (LANES.max - RIM_LANE));
+  return clamp01((Math.abs(lane) - FEEL.rimLane) / (LANES.max - FEEL.rimLane));
 }
 
 /**
@@ -123,14 +119,14 @@ export function rimGrip(lane: number): number {
 export function slipPull(lane: number, bank: number, airborne = false): number {
   const side = Math.sign(lane);
   const outward = -bank * side;
-  if (side === 0 || outward <= SLIP_HOLD) return 0;
-  const bite = clamp01((outward - SLIP_HOLD) / (1 - SLIP_HOLD));
-  return side * bite * rimGrip(lane) * SLIP_MAX * (airborne ? AIR_SLIP : 1);
+  if (side === 0 || outward <= FEEL.slipHold) return 0;
+  const bite = clamp01((outward - FEEL.slipHold) / (1 - FEEL.slipHold));
+  return side * bite * rimGrip(lane) * FEEL.slipMax * (airborne ? FEEL.airSlip : 1);
 }
 
 /** Ease the current slide toward what the bank is pulling for; the raft has mass, so it lags. */
 export function stepSlip(slip: number, pull: number, dt: number): number {
-  return approach(slip, pull, SLIP_RATE, dt);
+  return approach(slip, pull, FEEL.slipRate, dt);
 }
 
 /** Lanes past the water's edge: positive means the raft is riding wall instead of flow. */
@@ -141,7 +137,7 @@ export function offChuteDepth(lane: number): number {
 /** Wipeout countdown (GAME_SPEC §4.4): fills while off the flow, drains once back over water. */
 export function stepFall(fallT: number, offChute: boolean, dt: number): number {
   const step = Math.max(0, dt);
-  return offChute ? fallT + step : Math.max(0, fallT - step * FALL_RECOVER);
+  return offChute ? fallT + step : Math.max(0, fallT - step * FEEL.fallRecover);
 }
 
 export function comboBonus(combo: number): number {

@@ -171,9 +171,8 @@ export const CAMERA = {
  * 3) 会话判定 —— src/session.ts 消费（Round 2 接线）。
  * 单一来源规则不变：谁消费谁只读这里，禁止模块内再留同值副本；
  * 新字段必须与消费方同一提交入表，禁止堆无人消费的镜像值。
- * Round 2 的甩出滑道玩法在 physics.ts 还有一批内联常量
- * （CHUTE / SLIP_* / RIM_LANE / FALL_TIME / FALL_RECOVER），按上述规则
- * 留在持有者手里，等真正迁移时一并入组——本表刻意不预建镜像。
+ * 甩出滑道几何与计时（原 physics 内联）已入本组第 5 节；
+ * 镜头冲击由 apply* 写入 Motion.kick，session 再转发给 kickCamera。
  * ===================================================================== */
 export const FEEL = {
   /* —— 1) 速度模型（physics.ts）—— */
@@ -231,7 +230,7 @@ export const FEEL = {
   vortexSlowMul: 0.7,
   /** 水环短暂无敌时长（秒，§4.3 Ring） */
   ringInvulnS: 0.6,
-  /* —— 4) 反馈强度（physics.ts 的 kickCamera 力度，已接线）—— */
+  /* —— 4) 反馈强度（apply* 写入 Motion.kick，session 转 kickCamera）—— */
   /** 撞障碍的镜头冲击力（applyHit） */
   hitKick: 0.9,
   /** 刮墙的镜头冲击力（applyWallScrape） */
@@ -241,6 +240,25 @@ export const FEEL = {
   /** 受击顿帧时长（秒，40–60ms 取中）。applyHit 记账到 Motion.hitstopLeft，
    *  session.update 每帧经 takeHitstop 先扣掉冻结量再推进世界（R3 接线） */
   hitstopS: 0.05,
+  /* —— 5) 滑道截面 / 甩出（physics.ts + track.ts + player.ts）—— */
+  /** 水面半宽（车道单位）：再往外就是墙沿，offChute 开始计时 */
+  chuteFloor: 2.85,
+  /** 墙沿半宽（车道单位）；track 画的边必须等于这个数 */
+  chuteWall: 3.3,
+  /** 满倾斜过弯时向外滑出的最大车道数 */
+  slipMax: 1.05,
+  /** 弯道仍能兜住的倾斜阈值；超过才开始向外甩 */
+  slipHold: 0.45,
+  /** 平地板把泳圈交给墙沿的车道位置 */
+  rimLane: 1.4,
+  /** 滑出量每秒趋近目标的速率 */
+  slipRate: 3.4,
+  /** 滞空时甩出倍率：空中没有水再往墙上推 */
+  airSlip: 0.2,
+  /** 离开水流后多久算落水（秒，GAME_SPEC §4.4） */
+  fallTimeS: 1.5,
+  /** 回到水面上时落水计时的回退倍率 */
+  fallRecover: 1.8,
 } as const;
 
 /* ========================================================================

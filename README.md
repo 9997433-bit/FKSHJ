@@ -9,7 +9,7 @@
 
 ```bash
 npm install
-npm test        # node --test 单测（34 项）
+npm test        # node --test 单测
 npm run dev     # 开发服务器，默认 http://127.0.0.1:5173
 ```
 

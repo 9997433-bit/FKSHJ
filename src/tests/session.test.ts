@@ -78,6 +78,7 @@ describe("Session scoring", () => {
     const result = session.result();
     assert.equal(result.hiScore, Math.floor(session.score));
     assert.equal(result.isNew, true);
+    assert.equal(result.fallen, false);
     const saved = loadSave();
     assert.equal(saved.hiScore, Math.floor(session.score));
     assert.equal(saved.hiDistance, Math.floor(session.distance));
@@ -105,5 +106,16 @@ describe("Session scoring", () => {
     const result = winner.result();
     assert.equal(result.isNew, true);
     assert.equal(result.hiScore, 501);
+  });
+
+  it("reports a washout separately from a deflated tube", () => {
+    const washed = new Session(silentSfx, 7);
+    washed.player.fallen = true;
+    washed.player.hp = 0;
+    assert.equal(washed.result().fallen, true);
+
+    const popped = new Session(silentSfx, 8);
+    popped.player.hp = 0;
+    assert.equal(popped.result().fallen, false);
   });
 });

@@ -20,7 +20,28 @@ export type MenuPayload = {
   onTitle?: () => void;
   /** 提供后面板右上角出现静音按钮，并在面板打开期间绑定 M 键。 */
   audio?: AudioControl;
+  /** 结算死因：落水 vs 撞瘪。缺省保持旧文案。 */
+  endedBy?: "washout" | "deflated";
 };
+
+export function gameoverCopy(p: Pick<MenuPayload, "isNew" | "endedBy">): { title: string; tag: string } {
+  if (p.endedBy === "washout") {
+    return {
+      title: p.isNew ? "载入史册" : "冲出滑道",
+      tag: p.isNew ? "甩进水里也创了纪录" : "离心力把泳圈甩进了水里",
+    };
+  }
+  if (p.endedBy === "deflated") {
+    return {
+      title: p.isNew ? "载入史册" : "气漏光了",
+      tag: p.isNew ? "气漏光了，但分数留了下来" : "橡皮鸭和漩涡把泳圈撞瘪了",
+    };
+  }
+  return {
+    title: p.isNew ? "载入史册" : "冲上岸了",
+    tag: "CRAZY WATER WORLD · 本局结算",
+  };
+}
 
 /** 上一个菜单挂的全局键盘监听，重渲染 / 隐藏时移除，避免泄漏与重复触发。 */
 let disposeKeys: (() => void) | null = null;
@@ -78,7 +99,7 @@ const HELP_HTML = `
       <span><kbd>A</kbd>/<kbd>←</kbd> 左换道 · <kbd>D</kbd>/<kbd>→</kbd> 右换道 ·
       <kbd>空格</kbd>/<kbd>W</kbd>/<kbd>↑</kbd> 跳跃 · <kbd>P</kbd>/<kbd>Esc</kbd> 暂停</span></div>
     <div class="help-row"><span class="help-k">触屏</span>
-      <span>左右半屏点按换道 · 中间点按跳跃 · 水平滑动换道</span></div>
+      <span>左 / 中 / 右三分屏：左换道、中跳跃、右换道 · 水平滑动换道</span></div>
     <div class="help-row"><span class="help-k">规则</span>
       <span>金币 +10 · 宝石 +50 · 水环 +100 并短暂无敌 · 连击越高加成越多 ·
       连续无伤收集 15 个回 1 点气量</span></div>
@@ -158,11 +179,13 @@ export function renderOverlay(
     return;
   }
 
+  const over = gameoverCopy(payload);
   root.innerHTML = `
     <div class="panel" role="dialog" aria-label="本局结算">
       ${muteHtml(payload.audio)}
       ${payload.isNew ? '<div class="badge-new">新纪录！</div>' : ""}
-      <h1>${payload.isNew ? "载入史册" : "冲上岸了"}</h1>
+      <h1>${over.title}</h1>
+      <div class="tag">${over.tag}</div>
       <div class="stats">
         <div class="stat"><span class="num">${Math.floor(payload.score ?? 0)}</span><span class="lbl">分数</span></div>
         <div class="stat"><span class="num">${Math.floor(payload.distance ?? 0)}m</span><span class="lbl">距离</span></div>

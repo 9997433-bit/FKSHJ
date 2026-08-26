@@ -21,7 +21,7 @@
 | Round 1 | 完成 | 见 ROUND1_BRIEF.md |
 | Round 2 | 完成 | 见 ROUND2_BRIEF.md。34 测 + 长局不再空 |
 | Round 3 | 完成 | 见 ROUND3_BRIEF.md。34 测 + 回收 + 文档终审 |
-| 归档合并 | 进行中 | 草稿 PR #1，等待合入 main |
+| 归档合并 | 进行中 | 草稿 PR #1；收尾轮在拆 kick 耦合 / 结算文案 / 浏览器验收 |
 
 ## Round 1 派发记录
 

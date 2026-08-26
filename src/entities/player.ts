@@ -2,7 +2,6 @@ import { FEEL, LANES, PLAYER, SPEED } from "../data/constants";
 import { chuteBank } from "../game/camera";
 import {
   applyWallScrape,
-  FALL_TIME,
   offChuteDepth,
   slipPull,
   stepFall,
@@ -67,7 +66,7 @@ export class Player {
 
   /** 0..1 through the wipeout timer, for anything that wants to warn the player. */
   get offChute01(): number {
-    return Math.min(1, this.fallT / FALL_TIME);
+    return Math.min(1, this.fallT / FEEL.fallTimeS);
   }
 
   get airborne(): boolean {
@@ -147,9 +146,9 @@ export class Player {
     const off = this.offChute;
     if (off) this.scrapeWall();
     this.fallT = stepFall(this.fallT, off, dt);
-    if (!this.fallen && this.fallT >= FALL_TIME) {
+    if (!this.fallen && this.fallT >= FEEL.fallTimeS) {
       this.fallen = true;
-      // Ending through hp keeps one failure path: the shell reads `fallen` for the wording.
+      // Same hp=0 exit as a crash; Session.result().fallen tells the menu which copy to show.
       this.hp = 0;
     }
   }
