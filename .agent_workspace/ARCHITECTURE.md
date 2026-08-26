@@ -1,9 +1,7 @@
 # 疯狂水世界 — 架构说明（Round 3 终审 / fable-arch）
 
-本文是引擎层契约与全局结构的权威描述，基于 `e802d7b`（Round 2 六路
-合并 + Round 3 已收编的 opus-core / fable-sota / gpt-test / gpt-probe
-成果）做终轮审计。R3 的 opus-content 在本文提交时仍在途，其成果并入后
-应按 §8 复核一次。玩法数值一律以 `src/data/constants.ts` 为准
+本文是引擎层契约与全局结构的权威描述，基于 `c361728`（Round 3 六路
+含身后回收与加速线）做终轮审计。玩法数值一律以 `src/data/constants.ts` 为准
 （GAME_SPEC §9），本文不重复数值。
 
 **本轮门禁实测**（同一工作区，提交前复跑）：`npm test` 34/34、
@@ -187,9 +185,8 @@ FALL_RECOVER`（R2 甩出滑道玩法）仍内联。规则：新字段必须与�
 4. **HUD 模块级动画状态跨局泄漏** —— ✅ R3 fable-sota 完成：
    `resetHud()` 在 startRun 显式调用，drawHud 内 distance 回退自动清零
    兜底，两者幂等。
-5. **实体数组只增不删** —— ❌ 仍只增。session 的三个循环对
-   taken/hit/used 与窗口外实体是 O(1) 跳过，R2 实测 10 万距离仍便宜，
-   不影响可玩性；回收留作卫生项（§8-B）。
+5. **实体数组只增不删** —— ✅ R3 opus-content：`recycleBehind` 在
+   玩家身后 400 单位扫尾，步长 200；不碰 `gen` 游标，流式确定性保持。
 6. **探针磁带在新种子下早死** —— ✅ 已确认并入档：确定性磁带在 1198m
    处 HP=0 结束（over=true, score 587.644），**确定性本身不受影响**
    （两遍逐位一致）；长局探针关碰撞照常跑满 10,000。BENCH.md 已由
@@ -202,10 +199,10 @@ FALL_RECOVER`（R2 甩出滑道玩法）仍内联。规则：新字段必须与�
 「SOTA 验收差距（Round 3 冲刺）」清单终审：
 
 - [x] camera/physics/player 改读 CAMERA/FEEL 并删内联副本（R3 opus-core）
-- [~] 受击 hitstop ✅（R3 opus-core）；加速速度线仍缺（§8-B）
+- [x] 受击 hitstop + 加速速度线（R3 opus-core / opus-content `speedlines.ts`）
 - [x] HUD `offChute01` 预警、跨局重置（R3 fable-sota：两级淡入预警胶囊
       + 侧缘 danger 雾 + reduced-motion 守卫 + resetHud 双保险）
-- [ ] 远离玩家的实体回收（未做，§8-B）
+- [x] 远离玩家的实体回收（R3 opus-content `recycleBehind`）
 - [x] themeAt 与循环语义对齐或文档标明（本轮完成，见上 §7-1）
 - [x] README / SOTA_BAR / ARCHITECTURE 与现网行为对齐（README 重写为
       流式世界/落水/静音 M/四主题循环 + 本文终审 = fable-arch 本轮；
@@ -229,17 +226,13 @@ R2 相对 R1 的八项演进（流式世界、主题循环、落水失败、换�
 
 **B. 玩法/呈现小缺口（各自一小时级，互不依赖）**
 
-2. - 加速带速度线（线型粒子即可，别上真模糊）；
-   - 实体回收（distance 远落后的 taken/hit/used 条目定期 splice）；
-   - 结算文案区分落水（`player.fallen`）与撞瘪，或删掉 player.ts 里
+2. - 结算文案区分落水（`player.fallen`）与撞瘪，或删掉 player.ts 里
      「shell 读 fallen」的过期注释；
    - menus 帮助文案「左右半屏」与 input.ts 实际三分屏（0.33/0.67）对齐。
 
 **C. 验收收尾（合并前）**
 
-3. - R3 opus-content 在途成果并入后，按本文 §1/§3 复核一次模块边界
-     （新增绘制层注意「绘制顺序即镜头时序」）；
-   - 浏览器实测：1080p 帧时 ≥55fps、标题→暂停→结算→再来一局全键盘闭环、
+3. - 浏览器实测：1080p 帧时 ≥55fps、标题→暂停→结算→再来一局全键盘闭环、
      四主题跨圈渐变无硬切、受击顿帧与甩出预警可感知。
 
 **门禁（合并前必须全绿，本轮已验证当前基线全绿）**
