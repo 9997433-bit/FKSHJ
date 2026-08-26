@@ -13,6 +13,9 @@ const required = [
   "src/index.css",
   ".agent_workspace/GAME_SPEC.md",
   ".agent_workspace/PROGRESS.md",
+  ".agent_workspace/BENCH.md",
+  "scripts/bench.ts",
+  "scripts/probe-session.ts",
   "scripts/smoke.mjs",
 ];
 
