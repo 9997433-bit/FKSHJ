@@ -14,9 +14,13 @@
  *    这些数；对外仍导出 `TILE = 64`、`RAFT_ORIGIN` 等旧形状，绘制层
  *    不用跟着改。改平衡改本文件一处即可。
  *
- * 3. 【Round 1 新系统】文件末尾第三段：ITEM_DROP / ITEM_USE 是接线
+ * 3. 【Round 1 新系统】第三段：ITEM_DROP / ITEM_USE 是接线
  *    时消费的真相；BAG / BOARD 是 inventory / expand 本地数值的文档
  *    镜像（收编前以原件为准）。接线契约见 ARCHITECTURE §7。
+ *
+ * 4. 【Round 2 新表】文件末尾第四段：JUNK_LOOKS（海面外观换装概率）
+ *    与 MILESTONES（里程碑判定阈值），出生即唯一真源，消费方直接
+ *    import 不留本地副本。接线契约见 ARCHITECTURE §7.7。
  *
  * 约定：
  * - 单位：长度 = 逻辑像素（CANVAS 坐标系），时间 = 秒。
@@ -311,6 +315,15 @@ export const ITEM_USE = {
 export const BAG = { slots: 16 } as const;
 
 /**
+ * HUD 道具袋条（ui/hud.ts 消费，这里是真相）。只影响展示：
+ * 一屏固定几个小格，不限持有种类；袋子真实容量见 BAG / DEFAULT_SLOTS。
+ */
+export const INVENTORY = {
+  /** HUD 物品栏条一屏展示的小格数 */
+  hudSlots: 6,
+} as const;
+
+/**
  * 【镜像】请求板节奏 = sim/expand.ts 的 BOARD（逐键同名同值）。
  * 首单 12s 早于首场风暴（50s），玩家在第一场灾难前就有个主动目标；
  * 难度档 = ⌊板龄 / tierEveryS⌋（≤ maxTier），越往后要得多、给得多、
@@ -334,3 +347,53 @@ export const BOARD = {
   diaryMax: 12,
   urgentAt: 0.3,
 } as const;
+
+// ═══════════════════════════════════════════════════════════════════
+// 四、Round 2 新表（海面外观 / 里程碑）——出生即唯一真源
+// ═══════════════════════════════════════════════════════════════════
+//
+// 本段只加新表，前三段一个数没动，探针基线（728b59b5）不受影响。
+// 消费方直接 import、不留本地副本；接线契约见 ARCHITECTURE §7.7。
+
+/**
+ * 漂浮物外观换装（world/junk.ts 消费）。海面刷出目录物**只换外观**：
+ * `Junk.kind` 仍限四种建材、捞取入库仍走 `gain()` 对 Resources、
+ * 产出区间仍是 SALVAGE.yields——不另开第二套掉落经济。
+ * 换装抽取走 JunkField 自带的 LCG（同种子同海面），不碰 session.rng，
+ * 威胁/请求板的随机序列因此纹丝不动。look → 建材 kind 的映射是内容，
+ * 住 junk.ts / items.ts（如 油布→plastic、空油桶→metal、咸海带→wood）。
+ */
+export const JUNK_LOOKS = {
+  /** 一件新刷漂浮物穿目录外观（油布/空油桶/咸海带……）的概率 */
+  chance: 0.35,
+} as const;
+
+/**
+ * 里程碑 id。也是结算/存档里的稳定键：改 id 等于清掉玩家已达成的
+ * 记录——改文案可以，id 别动。
+ */
+export type MilestoneId = "first-purifier" | "first-storm" | "raft-12" | "day-3";
+
+/** 里程碑读哪条可测状态（= MilestoneCtx 的键，见 ARCHITECTURE §7.7）。 */
+export type MilestoneStat = "purifiers" | "stormsSurvived" | "tiles" | "day";
+
+/**
+ * 里程碑判定表（sim/expand.ts 的里程碑旁路消费）。
+ * 判定 = `ctx[stat] >= goal`：纯阈值比较、零 rng 抽取，天然不碰探针
+ * 基线（探针窗口 300 tick ≈ 5s：第 1 天、至多 11 格、零净水机、
+ * 零风暴，一条都不会触发）。名称/庆祝文案/奖励是内容，住 expand.ts
+ * ——内容表不进本文件的老规矩。
+ */
+export const MILESTONES: Record<MilestoneId, { readonly stat: MilestoneStat; readonly goal: number }> = {
+  /** 首座净水机立起来：purifier 计数 ≥ 1 */
+  "first-purifier": { stat: "purifiers", goal: 1 },
+  /** 撑过首场风暴：已结算的风暴场数（threats.storm.count）≥ 1 且局未结束 */
+  "first-storm": { stat: "stormsSurvived", goal: 1 },
+  /** 木筏铺到 12 格（开局 3×3 = 9 格；探针磁带只铺到 11，压不到线） */
+  "raft-12": { stat: "tiles", goal: 12 },
+  /** 活到第 3 天：dayNumber ≥ 3，即 elapsed ≥ 240s（DAY.lengthS × 2） */
+  "day-3": { stat: "day", goal: 3 },
+};
+
+/** 里程碑的稳定顺序（同帧多条达成时按此排队展示），从表序现取。 */
+export const MILESTONE_IDS: readonly MilestoneId[] = Object.keys(MILESTONES) as MilestoneId[];
