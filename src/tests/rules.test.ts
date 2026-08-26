@@ -7,8 +7,11 @@ import {
   createRaft,
   createResources,
   isAdjacentToRaft,
+  PLACE_HINTS,
   pay,
   place,
+  placeHint,
+  type PlaceDenial,
 } from "../sim/rules";
 
 describe("resource costs", () => {
@@ -34,6 +37,20 @@ describe("foundation placement", () => {
       reason: "not-adjacent",
       cost: BUILDINGS.floor.cost,
     });
+  });
+
+  it("provides distinct non-empty Chinese hints for every placement denial", () => {
+    const denials: readonly PlaceDenial[] = ["occupied", "not-adjacent", "needs-floor", "cannot-afford"];
+    const hints = denials.map((reason) => {
+      assert.equal(placeHint(reason), PLACE_HINTS[reason]);
+      return PLACE_HINTS[reason];
+    });
+
+    for (const hint of hints) {
+      assert.ok(hint.trim().length > 0);
+      assert.match(hint, /\p{Script=Han}/u);
+    }
+    assert.equal(new Set(hints).size, denials.length);
   });
 });
 

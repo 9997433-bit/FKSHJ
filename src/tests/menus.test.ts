@@ -12,4 +12,15 @@ describe("gameoverCopy", () => {
 
     for (const copy of branches) assert.ok(copy.title.trim().length > 0);
   });
+
+  it("uses new-record copy for both explicit game-over reasons", () => {
+    assert.deepEqual(gameoverCopy({ endedBy: "starved", isNew: true }), {
+      title: "饿着肚子创了纪录",
+      tag: "下次先把钓鱼台盖起来",
+    });
+    assert.deepEqual(gameoverCopy({ endedBy: "coreDown", isNew: true }), {
+      title: "沉船前留下了传说",
+      tag: "海盗抢得走木板，抢不走纪录",
+    });
+  });
 });
