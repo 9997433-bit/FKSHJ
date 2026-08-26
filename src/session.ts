@@ -1,4 +1,4 @@
-import { LANES, PLAYER, SCORE, SPEED } from "./data/constants";
+import { CAMERA, FEEL, LANES, PLAYER, SCORE, SPEED } from "./data/constants";
 import { commitRun, loadSave } from "./data/save";
 import { drawBooster } from "./entities/booster";
 import { drawPickup } from "./entities/collectible";
@@ -74,7 +74,7 @@ export class Session {
     this.player.step(dt);
     if (this.player.consumeHopStart()) this.sfx.jump();
     const spd = stepSpeed(this.player.motion, dt);
-    const dz = spd * dt * 0.2;
+    const dz = spd * dt * FEEL.worldScale;
     this.distance += dz;
     this.score += dz * SCORE.distMul;
     this.player.z = this.distance;
@@ -88,12 +88,12 @@ export class Session {
   }
 
   private collect(): void {
-    const pz = 80;
+    const pz = FEEL.playerAnchorZ;
     const theme = themeAt(this.distance);
     for (const p of this.world.pickups) {
       if (p.taken) continue;
       const rel = p.z - this.distance;
-      if (rel < -20 || rel > 220) continue;
+      if (rel < FEEL.pickupZMin || rel > FEEL.pickupZMax) continue;
       if (!sameLane(this.player.lane, p.lane)) continue;
       if (!circleHit(this.player.laneX, pz, PLAYER.radius, p.lane * LANES.width, rel, p.r)) continue;
       p.taken = true;
@@ -109,7 +109,7 @@ export class Session {
         this.sfx.gem();
       } else {
         this.addCombo(2, SCORE.ring);
-        this.player.invuln = Math.max(this.player.invuln, 0.6);
+        this.player.invuln = Math.max(this.player.invuln, FEEL.ringInvulnS);
         sparkle(this.particles, at.x, at.y, theme.ink, 14);
         this.sfx.ring();
       }
@@ -117,18 +117,19 @@ export class Session {
   }
 
   private hazards(): void {
-    const pz = 80;
+    const pz = FEEL.playerAnchorZ;
     for (const h of this.world.hazards) {
       if (h.hit) continue;
       const rel = h.z - this.distance;
-      if (rel < -20 || rel > 180) continue;
-      if (!sameLane(this.player.lane, h.lane, h.kind === "vortex" ? 0.85 : 0.35)) continue;
+      if (rel < FEEL.hazardZMin || rel > FEEL.hazardZMax) continue;
+      if (!sameLane(this.player.lane, h.lane, h.kind === "vortex" ? FEEL.vortexLaneTol : FEEL.laneTol))
+        continue;
       if (h.jumpable && this.player.airborne) continue;
       if (!circleHit(this.player.laneX, pz, PLAYER.radius, h.lane * LANES.width, rel, h.r)) continue;
       h.hit = true;
       if (h.kind === "vortex") {
         this.player.trySwitch(this.player.lane <= 0 ? 1 : -1);
-        this.player.motion.speed *= 0.7;
+        this.player.motion.speed *= FEEL.vortexSlowMul;
       }
       if (this.player.hurt()) {
         applyHit(this.player.motion);
@@ -145,7 +146,7 @@ export class Session {
     for (const b of this.world.boosters) {
       if (b.used) continue;
       const rel = b.z - this.distance;
-      if (rel < -10 || rel > 140) continue;
+      if (rel < FEEL.boostZMin || rel > FEEL.boostZMax) continue;
       if (!sameLane(this.player.lane, b.lane)) continue;
       b.used = true;
       applyBoost(this.player.motion);
@@ -179,7 +180,7 @@ export class Session {
     for (const b of this.world.boosters) {
       if (b.used) continue;
       const rel = b.z - this.distance;
-      if (rel < 0 || rel > 1800) continue;
+      if (rel < 0 || rel > CAMERA.entityCullZ) continue;
       drawables.push({
         z: rel,
         draw: () => {
@@ -196,7 +197,7 @@ export class Session {
     for (const p of this.world.pickups) {
       if (p.taken) continue;
       const rel = p.z - this.distance;
-      if (rel < 0 || rel > 1800) continue;
+      if (rel < 0 || rel > CAMERA.entityCullZ) continue;
       drawables.push({
         z: rel,
         draw: () => {
@@ -213,7 +214,7 @@ export class Session {
     for (const h of this.world.hazards) {
       if (h.hit) continue;
       const rel = h.z - this.distance;
-      if (rel < 0 || rel > 1800) continue;
+      if (rel < 0 || rel > CAMERA.entityCullZ) continue;
       drawables.push({
         z: rel,
         draw: () => {
@@ -228,10 +229,10 @@ export class Session {
     }
 
     drawables.push({
-      z: 80,
+      z: FEEL.playerAnchorZ,
       draw: () => {
         const jumpLift = this.player.hopLift();
-        const pr = project(this.player.laneX, 80);
+        const pr = project(this.player.laneX, FEEL.playerAnchorZ);
         ctx.save();
         ctx.translate(pr.x, pr.y - jumpLift * pr.s);
         ctx.scale(pr.s, pr.s);
