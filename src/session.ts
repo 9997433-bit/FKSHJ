@@ -10,10 +10,16 @@ import { bigSplash, boostWake, sparkle, splash } from "./fx/splash";
 import { circleHit, sameLane } from "./game/collision";
 import { project } from "./game/camera";
 import { applyBoost, applyHit, comboBonus, stepSpeed } from "./game/physics";
-import { generateWorld, type WorldStuff } from "./world/levels";
+import {
+  generateAhead,
+  generateWorld,
+  seedWorld,
+  STREAM_AHEAD,
+  themeCycleAt,
+  type WorldStuff,
+} from "./world/levels";
 import { drawTrack } from "./world/track";
 import { drawFoam, drawSilhouettes, drawSky } from "./world/water";
-import { themeAt } from "./ui/theme";
 import { drawHud } from "./ui/hud";
 
 export type RunResult = {
@@ -36,13 +42,17 @@ export class Session {
   cleanHits = 0;
   time = 0;
   runId: number;
+  /** 世界种子（GAME_SPEC §5：dateDay ^ runId） */
+  seed: number;
   sfx: Sfx;
   over = false;
 
-  constructor(sfx: Sfx, runId = Date.now()) {
+  /** `seed` 可显式传入，用于需要跨天复现同一个世界的回放 / 探针。 */
+  constructor(sfx: Sfx, runId = Date.now(), seed = seedWorld(runId)) {
     this.sfx = sfx;
     this.runId = runId;
-    this.world = generateWorld(runId);
+    this.seed = seed;
+    this.world = generateWorld(seed);
   }
 
   get speed01(): number {
@@ -78,6 +88,8 @@ export class Session {
     this.distance += dz;
     this.score += dz * SCORE.distMul;
     this.player.z = this.distance;
+    // 续生：相机前方始终有内容，长局不会滑进空水道
+    generateAhead(this.world, this.distance + STREAM_AHEAD);
     this.comboT -= dt;
     if (this.comboT <= 0) this.combo = 0;
 
@@ -89,7 +101,7 @@ export class Session {
 
   private collect(): void {
     const pz = 80;
-    const theme = themeAt(this.distance);
+    const theme = themeCycleAt(this.distance);
     for (const p of this.world.pickups) {
       if (p.taken) continue;
       const rel = p.z - this.distance;
@@ -135,7 +147,7 @@ export class Session {
         this.combo = 0;
         this.cleanHits = 0;
         const at = project(h.lane * LANES.width, rel);
-        bigSplash(this.particles, at.x, at.y, themeAt(this.distance).foam, this.speed01);
+        bigSplash(this.particles, at.x, at.y, themeCycleAt(this.distance).foam, this.speed01);
         this.sfx.hit();
       }
     }
@@ -150,7 +162,7 @@ export class Session {
       b.used = true;
       applyBoost(this.player.motion);
       const at = project(b.lane * LANES.width, Math.max(0, rel));
-      boostWake(this.particles, at.x, at.y, themeAt(this.distance).accent);
+      boostWake(this.particles, at.x, at.y, themeCycleAt(this.distance).accent);
       this.sfx.boost(b.tier);
     }
   }
@@ -167,7 +179,7 @@ export class Session {
   }
 
   draw(ctx: CanvasRenderingContext2D): void {
-    const theme = themeAt(this.distance);
+    const theme = themeCycleAt(this.distance);
     const speed01 = this.speed01;
     drawSky(ctx, theme, this.time);
     drawSilhouettes(ctx, theme, this.distance, this.time);
