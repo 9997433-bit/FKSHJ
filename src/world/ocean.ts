@@ -82,12 +82,12 @@ export const SEA_PALETTES: Record<SeaPhaseId, SeaPalette> = {
   day: {
     id: "day",
     name: "白昼",
-    shallow: "#2f9fbd",
-    deep: "#08405f",
-    wave: "#a8ecf7",
+    shallow: "#3fc4da",
+    deep: "#0a5a80",
+    wave: "#c2f4fb",
     foam: "#ffffff",
-    caustic: "#bff2ff",
-    sunken: "#0a3550",
+    caustic: "#d6faff",
+    sunken: "#0d4a6b",
     glint: "#fff4c2",
     ink: "#f4feff",
     accent: "#ffd166",
@@ -132,6 +132,9 @@ const PHASE_STOPS: readonly { at: number; id: SeaPhaseId }[] = [
   { at: 0.12, id: "day" },
   { at: NIGHT_AT - 0.14, id: "dusk" },
   { at: NIGHT_AT, id: "night" },
+  // 夜要压住整段 nightFrac，只在最后一小截泛起晨光；
+  // 少了这个停靠点，夜刚落下就开始往黎明漂，「一整夜」根本看不到
+  { at: 1 - DAY.nightFrac * 0.2, id: "night" },
   { at: 1, id: "dawn" },
 ];
 
@@ -331,9 +334,10 @@ const SUNKEN_COUNT = 14;
 /**
  * 水下的城市剪影。
  *
- * 三件事让它读起来是「在水下」而不是「贴在水上」：
- * 深度越大颜色越接近深水色、边缘越糊；整体随洋流缓慢平移（视差远小于
- * 水面泡沫）；楼顶补一条被水面折射抖动的亮边。
+ * 三件事让它读起来是「沉在水下」而不是「浮在水上」：
+ * 颜色随深度混向深水色（深的几乎化在水里）；轮廓靠三层逐层放大、
+ * 逐层变淡的重画糊掉边缘，替代昂贵的真模糊；整体随洋流做极缓视差，
+ * 比水面泡沫慢得多，于是它明显在「另一层」。
  */
 export function drawSunkenCity(ctx: CanvasRenderingContext2D, p: SeaPalette, time: number): void {
   const dx = Math.cos(SEA.currentDir) * SEA.currentPxS * 0.35;
@@ -350,37 +354,51 @@ export function drawSunkenCity(ctx: CanvasRenderingContext2D, p: SeaPalette, tim
     const w = 46 + hash01(i * 7.1) * 96;
     const h = 40 + hash01(i * 2.3) * 120;
     const kind = hash01(i * 9.7);
+    // 深的楼几乎化进深水色，浅的才有点自己的轮廓
+    const tint = mixHex(p.sunken, p.deep, depth * 0.85);
+    // 水面折射：整栋楼轻轻晃，晃动幅度随深度放大
+    const wob = Math.sin(time * 0.9 + i * 1.7) * (1.5 + depth * 3);
 
-    ctx.globalAlpha = 0.5 - depth * 0.34;
-    ctx.fillStyle = p.sunken;
     ctx.save();
-    ctx.translate(x, y);
+    ctx.translate(x + wob, y + wob * 0.6);
     ctx.rotate((hash01(i * 4.4) - 0.5) * 0.5);
+    ctx.fillStyle = tint;
 
-    if (kind < 0.18) {
-      // 断桥：一段桥面加两个桥墩
-      ctx.fillRect(-w, -10, w * 2, 20);
-      ctx.fillRect(-w * 0.5, -h * 0.4, 16, h * 0.8);
-      ctx.fillRect(w * 0.4, -h * 0.4, 16, h * 0.8);
-    } else if (kind < 0.32) {
-      // 环形体育场
-      ctx.beginPath();
-      ctx.ellipse(0, 0, w * 0.8, h * 0.5, 0, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.globalCompositeOperation = "destination-out";
-      ctx.beginPath();
-      ctx.ellipse(0, 0, w * 0.5, h * 0.3, 0, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.globalCompositeOperation = "source-over";
-    } else {
-      // 高楼：主楼 + 裙楼，楼顶被水面搅出来的亮边
-      ctx.fillRect(-w / 2, -h / 2, w, h);
-      ctx.fillRect(-w * 0.8, h * 0.1, w * 0.5, h * 0.35);
-      ctx.globalAlpha *= 0.9;
-      ctx.strokeStyle = p.caustic;
-      ctx.lineWidth = 2;
-      const wob = Math.sin(time * 1.3 + i) * 2.5;
-      ctx.strokeRect(-w / 2 + wob, -h / 2 + wob * 0.6, w, h);
+    // 三层：外圈最淡最大，逐层收紧，边缘就糊成了水里的轮廓
+    for (let layer = 2; layer >= 0; layer--) {
+      const grow = layer * 5;
+      ctx.globalAlpha = (0.26 - depth * 0.17) * (layer === 0 ? 1 : 0.34 / layer);
+      if (kind < 0.18) {
+        // 断桥：一段桥面加两个桥墩
+        ctx.fillRect(-w - grow, -11 - grow, (w + grow) * 2, 22 + grow * 2);
+        ctx.fillRect(-w * 0.5 - grow, -h * 0.4, 16 + grow * 2, h * 0.8);
+        ctx.fillRect(w * 0.4 - grow, -h * 0.4, 16 + grow * 2, h * 0.8);
+      } else if (kind < 0.32) {
+        // 环形体育场：只画环，中间的场地留给水
+        ctx.lineWidth = 14 + grow * 2;
+        ctx.strokeStyle = tint;
+        ctx.beginPath();
+        ctx.ellipse(0, 0, w * 0.66, h * 0.42, 0, 0, Math.PI * 2);
+        ctx.stroke();
+      } else {
+        // 高楼：主楼 + 裙楼
+        ctx.fillRect(-w / 2 - grow, -h / 2 - grow, w + grow * 2, h + grow * 2);
+        ctx.fillRect(-w * 0.82 - grow, h * 0.1 - grow, w * 0.5 + grow * 2, h * 0.35 + grow * 2);
+      }
+    }
+
+    // 浅水里的楼顶还看得见几排窗；深的就免了，画了也只是噪点
+    if (kind >= 0.32 && depth < 0.55) {
+      ctx.globalAlpha = 0.1;
+      ctx.fillStyle = p.caustic;
+      const cols = Math.max(2, Math.floor(w / 22));
+      const rows = Math.max(2, Math.floor(h / 26));
+      for (let cx = 0; cx < cols; cx++) {
+        for (let cy = 0; cy < rows; cy++) {
+          if (hash01(i * 3 + cx * 7 + cy * 13) < 0.45) continue;
+          ctx.fillRect(-w / 2 + 6 + (cx * (w - 12)) / cols, -h / 2 + 6 + (cy * (h - 12)) / rows, 6, 5);
+        }
+      }
     }
     ctx.restore();
   }
@@ -456,19 +474,23 @@ export function drawCrests(
       else ctx.lineTo(along + off, across);
     }
     const shimmer = 0.5 + Math.sin(time * 1.1 + i * 0.8) * 0.5;
+    // 断续的短划：连成整条会变成横贯全屏的划痕，断开才像一片碎浪
+    ctx.setLineDash([26 + shimmer * 60, 34 + hash01(i) * 90]);
+    ctx.lineDashOffset = hash01(i * 5.1) * 400 - time * 26;
     ctx.strokeStyle = p.wave;
-    ctx.globalAlpha = (0.07 + shimmer * 0.08) * (1 + storm01 * 0.8);
-    ctx.lineWidth = 2 + shimmer * 1.6;
+    ctx.globalAlpha = (0.05 + shimmer * 0.05) * (1 + storm01 * 0.9);
+    ctx.lineWidth = 1.6 + shimmer * 1.2;
     ctx.stroke();
 
     // 每隔几条压一道白沫，海面才有前后层次
     if (i % 3 === 0) {
       ctx.strokeStyle = p.foam;
-      ctx.globalAlpha = (0.05 + shimmer * 0.06) * (1 + storm01 * 1.4);
-      ctx.lineWidth = 1.2;
+      ctx.globalAlpha = (0.035 + shimmer * 0.045) * (1 + storm01 * 1.5);
+      ctx.lineWidth = 1.1;
       ctx.stroke();
     }
   }
+  ctx.setLineDash([]);
   ctx.restore();
   ctx.globalAlpha = 1;
 }
@@ -577,7 +599,7 @@ export function drawVignette(ctx: CanvasRenderingContext2D, p: SeaPalette): void
     CANVAS.w * 0.78,
   );
   g.addColorStop(0, "rgba(0,0,0,0)");
-  g.addColorStop(1, withAlpha(p.deep, 0.55));
+  g.addColorStop(1, withAlpha(p.deep, 0.42));
   ctx.fillStyle = g;
   ctx.fillRect(0, 0, CANVAS.w, CANVAS.h);
 }
