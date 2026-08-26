@@ -20,8 +20,8 @@
 | 准备 | 完成 | 规格、所有权、可玩骨架 |
 | Round 1 | 完成 | 见 ROUND1_BRIEF.md |
 | Round 2 | 完成 | 见 ROUND2_BRIEF.md。34 测 + 长局不再空 |
-| Round 3 | 派发中 | 云端 VM 上限 3：3 云端 + 3 本机 |
-| 归档合并 | 未开始 | 结构化 PR |
+| Round 3 | 完成 | 见 ROUND3_BRIEF.md。34 测 + 回收 + 文档终审 |
+| 归档合并 | 进行中 | 草稿 PR #1，等待合入 main |
 
 ## Round 1 派发记录
 
@@ -49,7 +49,7 @@
 
 | 角色 | 环境 | Agent ID | 状态 |
 | --- | --- | --- | --- |
-| fable-arch | cloud | `bc-99bd9075-210f-5450-839a-ef6ba23a43d5` | 运行中 |
+| fable-arch | cloud | `bc-99bd9075-210f-5450-839a-ef6ba23a43d5` | 已完成（README/ARCHITECTURE 已推上本分支） |
 | fable-sota | cloud | `bc-0de9872a-cdc0-50c1-b024-615242ba7a3c` | 已完成（HUD 重置 + 甩出预警已摘并） |
 | opus-content | cloud | `bc-b17b23ab-9bd3-5bc4-b392-8e2f17747b8a` | 已完成（身后回收 + 加速线已摘并） |
 | opus-core | local | `bc-e130416a-13a5-5d7d-89ad-7c311efebd6e` | 已完成（CAMERA/FEEL 落地，session 已接 hitstop） |
