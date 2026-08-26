@@ -77,6 +77,7 @@ const loop = createLoop((dt) => {
     } else {
       session.selected = input.selected;
       if (input.consumeScoop() || input.scoopHeld) session.tryScoop();
+      if (input.consumeDeliver()) session.tryDeliver();
       const click = input.consumeClick();
       session.update(dt, {
         ax: input.ax,

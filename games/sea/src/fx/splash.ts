@@ -5,6 +5,7 @@
  * 捞东西、物件入水、开船的尾迹、建造的木屑、结构被打的碎片。
  */
 
+import { itemArt } from "../world/items";
 import { spawnBurst, type Particle } from "./particles";
 
 /**
@@ -27,6 +28,27 @@ export function scoopSplash(list: Particle[], x: number, y: number, color: strin
     life: 0.3,
     speed: 0,
   });
+}
+
+/**
+ * 捞到某件**具体的东西**：白水花打底，再补一撮这件东西自己颜色的碎屑。
+ *
+ * 颜色从 `world/items.ts` 的外观登记表取，调用方不用记谁是什么色号，
+ * 目录里加的新道具也自动有对得上的水花。稀有度 ≥2 的多一圈亮片，
+ * 「捞到好东西」这件事在世界里就有反馈，不必等 HUD 弹字。
+ */
+export function salvageSplash(list: Particle[], x: number, y: number, itemId: string, s01 = 0.5): void {
+  const art = itemArt(itemId);
+  scoopSplash(list, x, y, "#bfe9ff", s01);
+  spawnBurst(list, x, y, art.tint, {
+    count: 6,
+    shape: "spark",
+    speed: 150,
+    radius: 2.4,
+    life: 0.42,
+    drag: 3.2,
+  });
+  if (art.rare >= 2) sparkle(list, x, y, art.accent, 8 + art.rare * 3);
 }
 
 /** 物件入水 / 沉没：小而钝的一圈水点。 */

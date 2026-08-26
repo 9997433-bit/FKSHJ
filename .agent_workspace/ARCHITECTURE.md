@@ -1,35 +1,66 @@
 # 架构 —《疯狂水世界》海上末日生存原型
 
-Round 1 fable-arch 出品，Round 2 与运行中的 sim 对齐，Round 3 核验对齐
-并明确收编路径。本文是各子代理之间的**接口契约**：模块归属见
-`OWNERSHIP.md`，玩法定义见 `GAME_SPEC.md`。
+fable-arch 维护。本文是各子代理之间的**接口契约**：模块归属见
+`OWNERSHIP.md`，玩法定义见 `GAME_SPEC.md`。Round 1 新增两块：多游戏
+目录契约（§0）与物品/请求板/剧情三个新系统的接线契约（§7）。三个
+新模块已落地，§7 与实现逐项核对过——**实现即真相**。Round 2 的四条
+支线已接三条：掉落线（§7.5.1）、海面外观线与里程碑线（§7.7，里程碑
+落地形态与当初契约的出入已按实现改写）。Round 3 收口最后一条
+**吃喝线**：契约在 §7.5.2——inventory 提供 `useItem` 纯函数，
+session（父调度器）两步接线。老原则不变：**不开新经济、不开新场景、
+不扩 snapshot**，探针保持 `728b59b5`。
 
-**数值的真相在哪（Round 3 现状与分工）**：
+**数值的真相在哪（现状）**：
 
-- `src/data/constants.ts` 的镜像段**已逐项核验与 sim 数字对齐**
-  （网格/资源/建筑/产消/风暴/海盗/炮塔/小船，含 `TURRET.range =
-  TILE × 5`、`SKIFF.scoopRadius = TILE × 1.5` 这类派生值）。
-- 但 sim 目前仍读自己的本地副本：`sim/rules.ts`（资源/建筑/网格）、
-  `sim/economy.ts`（产出/吃喝/维修/断粮）、`sim/threats.ts`（风暴/
-  海盗波/炮塔）、`entities/skiff.ts` 与 `entities/pirate.ts`（小船/
-  海盗手感）。**Round 3 由 opus-core 负责**把 sim/entities 改为直接
-  import constants 的这些数，完成后 constants 即唯一真源；fable-arch
-  不改 sim。
-- `constants.ts` 中 CANVAS、LOOP、SAVE_KEY、DAY、SALVAGE **现在就
-  被运行时真实消费**（engine/input/hud/sim-rules 吃 CANVAS，loop 吃
-  LOOP，save 吃 SAVE_KEY，ocean 吃 DAY，junk 吃 SALVAGE），这五个
-  改这里就是改游戏。
-- 在 opus-core 完成收编之前，改平衡仍改 sim 原件，再同步 constants
-  的镜像段；两边不一致时，**以能跑的 sim 为准**。
+- 既有玩法：`games/sea/src/data/constants.ts` 是**唯一真源**——sim
+  （rules/economy/threats）与 entities（skiff/pirate）已全部改为直接
+  import 它的表，不留本地副本。改平衡改 constants 一处即可（上一
+  周期 Round 3 完成的收编，现已是常态）。
+- constants 没有对应条目的少量细节（SEA_BOUNDS、HOTBAR、BUILDINGS
+  的 name/desc/onWater、残血效率曲线、波内人数公式等）仍写死在各
+  sim 文件里，归属见各文件头注释。
+- Round 1 新系统：接线用的新数（ITEM_DROP / ITEM_USE）在 constants
+  且是真相；inventory / expand 本轮**刻意自带数值**（DEFAULT_SLOTS、
+  BOARD，见各自文件头注释），constants 的 BAG / BOARD 只是镜像，
+  收编待后续轮（§7.6）。**内容表**（物品定义/请求模板/剧情条目）
+  住各自模块，不进 constants。
 - 全游戏只有一套网格（TILE = 64px、原点画布正中、有符号格坐标），
   **禁止再发明第二套网格**。
+
+## 0. 多游戏目录
+
+仓库根是**多游戏入口**，海上生存整包住在 `games/sea/`：
+
+```
+/                     仓库根：入口导航页 + 工程配置，不放游戏源码
+├── index.html        多游戏入口页（父调度器专管，链到 ./games/sea/）
+├── games/sea/        海上生存整包（index.html + src/**）
+│   └── src/…         本文其余章节的相对路径全部指这里
+├── scripts/          探针/冒烟/基准（gpt-probe），全部指向 games/sea
+├── vite.config.ts    多入口构建：hub = 根 index.html，sea = games/sea/index.html
+└── .agent_workspace/ 规格 / 架构 / 进度文档
+```
+
+- 以后新游戏加 `games/<id>/`，**不往根塞 `src/`**；每款游戏自带自己的
+  `index.html` 与源码目录，互不 import。
+- 构建是 vite 多入口（`rollupOptions.input` 里 hub + sea，`base: "./"`
+  相对路径互链），产物 `dist/index.html` 是入口页、
+  `dist/games/sea/index.html` 是游戏。
+- `npm test`（games/sea/src/tests）、`npm run probe`、`npm run smoke`
+  都指向 games/sea 的路径；加第二款游戏时它们不需要动。
+- 存档键继续 `cww_sea_v1`（SAVE_KEY）。给存档加字段只能**增量可选**：
+  save.ts 读侧对缺字段回退零值，老档必须能读，禁止换键冲掉玩家纪录。
 
 ## 1. 模块图
 
 ```
-                       ┌────────────────────┐
-                       │  main.ts（父调度器） │  DOM 查询、Engine/Session/Loop 接线
-                       └─────────┬──────────┘
+                     ┌───────────────────────┐
+                     │  根 index.html 入口页  │  多游戏导航（父调度器专管）
+                     └───────────┬───────────┘
+                                 │ 链到 ./games/sea/
+                     ┌───────────▼───────────┐
+                     │ games/sea/src/main.ts │  DOM 查询、Engine/Session/Loop 接线（父管）
+                     └───────────┬───────────┘
                                  │ 组装
         ┌────────────────┬───────┴────────┬─────────────────┐
         ▼                ▼                ▼                 ▼
@@ -37,26 +68,33 @@ Round 1 fable-arch 出品，Round 2 与运行中的 sim 对齐，Round 3 核验�
 │ game/engine.ts │ │ game/loop.ts │ │  session.ts  │ │ data/save.ts  │
 │ 画布/DPR/场景机 │ │  rAF 主循环  │ │ 一局聚合(父管)│ │ 存档(content) │
 └───────┬───────┘ └──────┬──────┘ └──────┬───────┘ └───────────────┘
-        │ scene 事件      │ dt,elapsed    │ 每帧调用 ↓（顺序固定）
+        │ scene 事件      │ dt,elapsed    │ 每帧调用 ↓（顺序固定，见 §3）
         ▼                ▼               ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│  sim/**（opus-core）：木筏格子状态、建造规则、产消结算、           │
-│  风暴/海盗调度、胜负判定 —— 纯数据 + 纯函数，不碰 DOM/Canvas       │
+│  sim/rules|economy|threats + entities/**：木筏格子、建造规则、      │
+│  产消结算、风暴/海盗、小船 —— 纯数据 + 纯函数（本轮冻结，无人有     │
+│  写权）；game/input.ts：键鼠采样 → 每帧输入快照                    │
 ├─────────────────────────────────────────────────────────────────┤
-│  entities/**（opus-core）：小船、海盗、漂浮物的运动与碰撞          │
-│  game/input.ts（opus-core）：键鼠采样 → 每帧输入快照               │
+│  Round 1 新增（互相不 import，session 统一接线，契约见 §7）：       │
+│  · data/catalog.ts + sim/inventory.ts（opus-items）物品表/道具袋   │
+│  · sim/expand.ts（opus-play）岛民请求板 —— 本轮的新循环            │
+│  · story/**（opus-story）日记/电台条目表 + 解锁调度                │
 ├─────────────────────────────────────────────────────────────────┤
-│  world/**、fx/**（opus-content）：海面/木筏/漂浮物绘制、粒子、音频  │
+│  world/**、fx/**、data/save.ts（opus-content）：海面/木筏/实体绘制、│
+│  粒子、音频、存档                                                 │
+├─────────────────────────────────────────────────────────────────┤
 │  ui/**、index.css（fable-sota）：标题/暂停/结算 overlay、HUD       │
+│  （物品栏/委托板/台词的展示也归这里）                              │
 ├─────────────────────────────────────────────────────────────────┤
-│  data/constants.ts（fable-arch）：被消费的共享数（CANVAS/LOOP/     │
-│  SAVE_KEY/DAY/SALVAGE）+ sim 数值的文档镜像（以 sim 为准）          │
+│  data/constants.ts（fable-arch）：全部共享数值的唯一真源            │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
 依赖方向自上而下单向：sim 不 import 渲染层；渲染层只读 sim 暴露的
-状态，不回写。跨层通信只走两条路：Loop 的 `tick(dt, elapsed)` 与
-Engine 的 `onSceneChange`。
+状态，不回写。新系统同理：inventory/expand/story 是纯数据模块，
+不碰 DOM/Canvas，互相不 import（inventory 只吃 catalog，expand 只吃
+rules，story 谁都不吃，全靠 session 传状态）。跨层通信只走两条路：
+Loop 的 `tick(dt, elapsed)` 与 Engine 的 `onSceneChange`。
 
 ## 2. 场景流
 
@@ -77,6 +115,8 @@ boot ──▶ title ──▶ playing ◀──▶ paused
 - UI（fable-sota）通过 `onSceneChange` 挂/卸 overlay；音频（opus-content）
   同理切 BGM。谁触发迁移：input 层（P/Esc → paused）、sim 层（判负 →
   gameover）、UI 按钮（title/playing）。
+- 新系统不新增场景：物品吃喝、请求板交单、剧情条目展示全部发生在
+  playing 内、非模态（见 GAME_SPEC §6–§8）。
 
 ## 3. 帧数据
 
@@ -90,31 +130,39 @@ boot ──▶ title ──▶ playing ◀──▶ paused
 一帧内的固定顺序（session.ts 按此接线，任何人不得私自调换）：
 
 ```
-input.snapshot()            采样键鼠 → 只读快照（本帧内不再变）
-  └▶ sim.update(dt, snap)   建造 → 产出 → 消耗 → 风暴 → 海盗 → 胜负
-       └▶ world/fx.draw()   清屏 → 海面 → 木筏 → 实体 → 粒子
-            └▶ ui.hud()     资源条 / 预警 / 天数（最后画，永远在最上层）
+input.snapshot()              采样键鼠 → 只读快照（本帧内不再变）
+  └▶ sim.update(dt, snap)     建造 → 产出 → 消耗 → 风暴 → 海盗 → 胜负
+       └▶ updateBoard(dt)     请求板倒计时/贴单/过期（§7.3；交单走玩家操作，不在帧序里）
+            └▶ updateMilestones(board, res, facts) 里程碑判定与发奖（§7.7.2；纯阈值零 rng，
+              │                storm-strike 事件先逐场 noteStorm(board)）
+              └▶ updateStory(ctx) 剧情解锁与排队（§7.4；immutable，吃 day/建筑计数/elapsed）
+                 └▶ world/fx.draw()  清屏 → 海面 → 木筏 → 实体 → 粒子
+                      └▶ ui.hud()    资源/道具袋/请求板/剧情条目/预警（最后画，最上层）
 ```
 
 约束：
 
 - **模拟只认 dt**：所有速率写成「单位/秒 × dt」，禁止按帧计数。
-  昼夜相位、风暴/海盗计时一律基于 `elapsed`（暂停自动冻结）。
-- **渲染无副作用**：draw 不改 sim 状态；需要动画相位就用 `elapsed`。
-- `scene !== "playing"` 时跳过 `sim.update`，但照常 draw（暂停画面
-  是冻结的世界 + 遮罩，不是黑屏）。
+  昼夜相位、风暴/海盗/请求板计时一律基于模拟时间（暂停自动冻结）；
+  剧情不自己计时，只读 ctx.elapsed。
+- **渲染无副作用**：draw 不改 sim/inventory/board/story 状态；
+  需要动画相位就用 `elapsed`。
+- `scene !== "playing"` 或局已结束（`session.over`）时跳过整条 update
+  链（含 board/story），但照常 draw（暂停画面是冻结的世界 + 遮罩，
+  不是黑屏）。
 - 长挂起（断点、切后台）恢复后单帧最多推进 0.033s，不会出现风暴
-  一口气结算完、海盗瞬移贴脸的隧穿。
+  一口气结算完、海盗瞬移贴脸、条子批量过期的隧穿。
 
 ## 4. 坐标与网格
 
 - 逻辑画布 1280×720（`CANVAS`），engine.fit 按 DPR 放大 backing store，
-  绘制代码不感知物理像素。
-- 木筏网格只有一套（真相在 `sim/rules.ts`）：格边长 `TILE = 64`px；
-  格坐标是**有符号整数** (gx, gy)；`RAFT_ORIGIN`（画布正中 640, 360）
-  是 (0, 0) 格的**中心**，`center = RAFT_ORIGIN + (gx, gy) × TILE`，
-  换算走 `tileCenter` / `worldToTile`。没有 gridW/gridH——网格无边界，
-  木筏靠四邻接向外扩张。
+  绘制代码不感知物理像素。整局**俯视**视角；实体配色要一眼分得开
+  （可读性要求，world/craft.ts 遵循）。
+- 木筏建造网格只有一套（数值在 constants.TILE，换算函数在
+  sim/rules.ts）：格边长 `TILE = 64`px；格坐标是**有符号整数** (gx, gy)；
+  `RAFT_ORIGIN`（画布正中 640, 360）是 (0, 0) 格的**中心**，
+  `center = RAFT_ORIGIN + (gx, gy) × TILE`，换算走 `tileCenter` /
+  `worldToTile`。没有 gridW/gridH——网格无边界，木筏靠四邻接向外扩张。
 - 开局 3×3（|gx| ≤ 1 且 |gy| ≤ 1），中心 (0, 0) 是指挥中心 `core`
   （不可建造、不可拆除）。
 - 小船、海盗、漂浮物在连续坐标系运动，只有建筑吸附网格。小船活动
@@ -146,7 +194,8 @@ maxHp，不能靠重建洗血。无建造耗时。`refund` / `scrapValue`（半�
    不是每帧小数流。残血建筑按 `efficiencyOf` 减速（50%–100%）。
    入库被 `RESOURCE_CAP`（建材 99、水/食 100）截断，溢出丢弃。
 2. **捞取**：小船在 `SKIFF.scoopRadius`（1.5 格 = 96px）内按空格捞，
-   按 `SALVAGE.yields` 掷整数入库，同样受上限截断。
+   按 `SALVAGE.yields` 掷整数入库，同样受上限截断。捞取成功后另掷
+   物品掉落（§7.2，物品走独立的 INVENTORY 上限）。
 3. **维修**：岛民每 `REPAIR.intervalS`（2s）挑血量比例最低的一格
    （指挥中心加权优先），花 1 木板补 9 血。
 4. **消耗**：人口 = `CREW.base`（3）+ 每座存活的非地基建筑 1；
@@ -158,7 +207,9 @@ maxHp，不能靠重建洗血。无建造耗时。`refund` / `scrapValue`（半�
 
 产销平衡基准：一座净水机（1 水/s）> 全队水耗，一座钓鱼台（0.67 食/s）
 > 全队食耗（注意每盖一座建筑人口 +1，收支要连人一起算）；收集器只是
-慢流，建材大头靠开船拾荒。
+慢流，建材大头靠开船拾荒。请求板（§7.3）叠在这套收支之上：拿富余
+建材换水/食，给「捞回来的料」第二个去处；交单永远不倒扣（过期只
+丢奖励、清连击），不给资源盘放血。
 
 ### 5.3 风暴（真相：sim/threats.ts STORM）
 
@@ -195,12 +246,13 @@ maxHp，不能靠重建洗血。无建造耗时。`refund` / `scrapValue`（半�
 - 断粮计时器计满 `STARVE.limitS`（25s，见 §5.2）。
 
 结算面板展示：存活天数（`elapsed / DAY.lengthS`，120s 一天）、建筑数、
-累计捞取；最好成绩走 data/save.ts 落 localStorage。
+累计捞取；最好成绩走 data/save.ts 落 localStorage。请求板战绩
+（§7.3 的 `boardSummary`：done/expired/bestStreak）建议一并进结算
+——增量展示，不改老字段。
 
-## 6. Engine / Loop 契约要点（复审结论）
+## 6. Engine / Loop 契约要点
 
-两模块本轮复审通过，接口冻结；只修了注释里指向旧规格章节号的引用
-（重开后 GAME_SPEC 场景章节是 §5，注释原写 §7）。使用方须知：
+两模块接口冻结，本轮复核无行为改动。使用方须知：
 
 - **Engine**：backing store 随 DPR/resize 自动重建；Canvas2D 上下文
   丢失自动恢复（每帧全量重绘前可用 `engine.contextLost` 跳过无效
@@ -212,14 +264,323 @@ maxHp，不能靠重建洗血。无建造耗时。`refund` / `scrapValue`（半�
   与「rAF 时间戳恰为 0」冲突，但 rAF 时基是 navigation start，首帧
   必然 > 0，实际不可达，故不为此加状态位。
 
-## 7. 未决事项（交给后续轮）
+## 7. 新系统接线契约（Round 1：物品 / 请求板 / 剧情）
 
-- 存档（save.ts，opus-content）目前只落「最好成绩」（天数/捞取数），
-  键用 `SAVE_KEY`；局中进度存档（库存/格子/威胁计时）仍未做。
-- 人口 = 3 + 每座非地基建筑 1（economy CREW），是被动增长；
-  主动招募/岛民个体化仍是后续议题。
+三个新系统分属三个代理，**都没改既有 sim 文件**（rules/economy/
+threats/entities/sim/index.ts 本轮无人有写权，已核实）。它们是自带
+状态的纯数据模块，模块本体已落地，本节与实现逐项核对——**实现即
+真相**。父调度器已把 bag/board/story 接进 session（直接按文件路径
+import，没动 `sim/index.ts` 的桶口）；掉落线 Round 2 已接（§7.5.1），
+吃喝线 Round 3 收口（契约 §7.5.2）。
+
+三个模块共同满足的纪律（与 sim 一致，复核过）：纯数据 + 纯函数，
+不碰 DOM/Canvas/定时器；随机走传入的 `Rng`（同种子可复现）；只返回
+事件/新状态，不切场景、不放音效；失败路径不抛异常、不产生扣一半的
+中间态。
+
+### 7.1 物品表 `games/sea/src/data/catalog.ts`（opus-items，已落地）
+
+- `ItemId`：**14 种**物品的闭合字符串联合。前四个 id（wood/plastic/
+  metal/rope）与 `ResourceId` 同名是**刻意的**（将来捞取入袋不用做
+  id 映射），但袋里的数量与资源账本是两本账，**不相加**。
+- `ItemSpec = { id; name; desc; stack; tags }`：name 是原创中文名、
+  desc 一句话风味；`stack` 是**单格堆叠上限**（散料 99、成件杂物
+  5–30、独件 1）；`tags: ItemTag[]`（salvage / material / food /
+  drink / tool / medical / container / relic，多选），`TAG_NAMES`
+  给 HUD 分栏用。
+- `ITEMS: Record<ItemId, ItemSpec>`；`ITEM_IDS`（**书写顺序 = 全局
+  排序真源**，列举/快照/原子操作都按它，新物品往末尾加）；
+  `ItemBundle = Partial<Record<ItemId, number>>`（形状同 Cost）。
+- 查询与守卫：`isItemId`（存档回读先过它）、`itemSpec / itemName /
+  stackLimit / hasTag / itemsByTag / compareItems`。
+- 不 import 任何模块，Node 可直测。
+
+### 7.2 道具袋 `games/sea/src/sim/inventory.ts`（opus-items，已落地）
+
+```ts
+export type Inventory = { maxSlots: number; stacks: Map<ItemId, number> };
+export const DEFAULT_SLOTS = 16;      // 袋子格数（constants.BAG 是它的镜像）
+createInventory(init?: ItemBundle, opts?: { maxSlots?: number }): Inventory
+// 写（全部原子；要「能装多少装多少」的溢出丢弃语义，显式传 { partial: true }）
+addItem(inv, id, n?, opts?): AddResult      // { ok, added, overflow }
+removeItem(inv, id, n?, opts?): RemoveResult // { ok, removed, missing }
+addItems(inv, bundle): boolean               // 跨物品全或无
+removeItems(inv, bundle): boolean            // 配方扣料：同 rules.pay 语义
+// 读（确定性：一律按 ITEM_IDS 排序）
+countOf / totalItems / has / hasAll / listItems(inv): ItemStack[]
+usedSlots / freeSlots / isFull / capacityFor(inv, id)  // 容量判断唯一正确算法
+// 存档
+inventorySnapshot(inv): ItemBundle           // 键序稳定，JSON 可比对
+restoreInventory(raw, opts?) / sanitizeBundle(raw)     // 脏数据洗净再进袋
+```
+
+- 容量是两道闸：单格上限 `ITEMS[id].stack` × 袋子 `maxSlots` 格，
+  一种东西可占多格——判断「还装得下几件」只能用 `capacityFor`。
+- **不动 Resources**：与资源的汇率放接线层（§7.5 的吃喝线 +
+  constants.ITEM_USE）。
+
+### 7.3 请求板 `games/sea/src/sim/expand.ts`（opus-play，已落地）——本轮的新循环
+
+给富余建材第二个去处：岛民往板上贴条子收建材，兑水/食（偶尔搭
+材料）。「现在缺水，先交哪张单」是新的短期决策。
+
+```ts
+export const BOARD = { slots: 3, firstS: 12, postGapS: 26, postMinS: 13,
+  postDecayS: 1.5, ttlS: 75, ttlMinS: 42, ttlPerTier: 11, tierEveryS: 150,
+  maxTier: 3, wantPerTier: 1, rewardPerTier: 0.35, streakAt: 3,
+  streakMul: 1.5, diaryMax: 12, urgentAt: 0.3 };   // 真相在这里，constants.BOARD 是镜像
+export const REQUEST_KINDS: readonly RequestKind[]; // 8 个模板（人物/文案全原创）
+export type IslanderRequest = { id; kind; who; title; want: Cost; reward: Cost;
+  ttl; ttlMax; doneNote; failNote; state: "open" | "done" | "expired" };
+export type BoardState = { elapsed; open: IslanderRequest[]; postT; postGap;
+  seq; done; expired; streak; bestStreak; diary: DiaryEntry[] };
+export type BoardEvent =
+  | { type: "request-posted" | "request-expired"; request }
+  | { type: "request-done"; request; reward: Cost; got: Cost; streak: number }
+  | { type: "diary"; entry: DiaryEntry };          // DiaryEntry = { at, who, text, tone }
+
+createBoard(): BoardState / resetBoard(state)
+updateBoard(state, res, dt, rng): BoardEvent[]   // 倒计时/过期/贴单；res 只读
+complete(state, res, id): CompleteResult         // 交单：pay 原子扣，gainAll 入库
+canComplete / requestById / missingFor / completeHint(reason)
+urgencyOf / isUrgent / costLabel / readyRequests / boardSummary / recentDiary
+```
+
+- 节奏：首单 12s（早于首场风暴 50s，先给玩家一个主动目标）；贴单
+  间隔 26s 起每张 −1.5s、下限 13s；板满 3 张时压住计时等空位。
+  时限 75s 起、随难度档 −11s 到下限 42s；难度档 = ⌊板龄/150s⌋（≤3），
+  每档需求 +1/种、奖励 ×(1 + 0.35×档)。
+- **板上不出死单**：挑模板时按最坏需求筛「当场交得起」的，开局
+  个位数库存也不会挂满交不起的条子。
+- 交单原子（pay 先查后扣）；奖励 gainAll 入库、超上限截断（`got`
+  报实收）；连交 `streakAt`（3）张奖励 ×1.5，过期清连击、**从不
+  倒扣资源**。拒因 `unknown / cannot-afford`，`completeHint` 给 HUD
+  文案，`missingFor` 报还差多少。
+- 顺手产剧情素材：贴单/交单/过期都写 `diary`（≤12 条，
+  `recentDiary(n)` 给 HUD）——这是与 §7.4 互补的第二路文本。
+- 交单入口是玩家操作：HUD 画条子与「交」按钮（fable-sota），
+  session 收到点击调 `complete`——所以它不在 §3 帧序里。
+
+### 7.4 剧情 `games/sea/src/story/**`（opus-story，已落地）
+
+两个文件：`story/beats.ts`（条目表，纯内容）+ `story/index.ts`
+（解锁调度，纯函数）。
+
+```ts
+// beats.ts —— 10 条起步；id 是存档稳定键，改文案可以、改 id 不行
+export type Beat = { id; title; body };
+export type BeatKind = "journal" | "broadcast";  // 日记 8s / 电台 10s（holdS）
+export type BeatRequirement = { day?; elapsed?; buildings?: Record<string, number> };
+export type StoryBeat = Beat & { kind; require: BeatRequirement; holdS };
+export const STORY_BEATS: readonly StoryBeat[];  // 表序 = 同帧多条时的排队序
+export const BEAT_COUNT: number;
+
+// index.ts —— 不可变状态：没变化时原样返回旧引用，UI 可用 !== 判重绘
+export type StoryCtx = { day: number; buildings: Record<string, number>; elapsed: number };
+export type StoryState = { unlocked: readonly string[]; queue: readonly string[];
+  beat: Beat | null; shownAt: number };
+createStory(): StoryState
+updateStory(state, ctx): StoryState   // 没有 dt：时间全从 ctx.elapsed 来
+currentBeat(state): Beat | null       // 当前该上屏的一条
+unlockedBeats(state): StoryBeat[]     // 日志本回看，按解锁顺序
+storyProgress(state)                  // { unlocked, total }，UI 显示 3/10
+hasUnlocked(state, id) / beatById(id)
+```
+
+- 解锁条件是 day / elapsed / buildings 三项**与**关系的下限，全不写
+  = 开局即解锁（首条 `salt-dawn` 就是，保证开局必有一条上屏）。
+  `buildings` 是各类建筑的**数量**（键对 BuildingId，故意用宽松
+  string 键——story 不 import sim，剧情层不绑死玩法层类型）。
+- 一帧最多上屏一条；同帧满足多条按表序排队；当前条停留 `holdS`
+  后自动收走再上下一条。已解锁的 id 永不重复入队。
+- 展示归 fable-sota：画 `state.beat` 的 title + body，kind 区分
+  日记/电台样式。非模态，不暂停不弹窗。
+
+### 7.5 接线现状与吃喝线契约（session.ts 归父调度器）
+
+已落地（Round 1–2，核对过 session.ts）：
+
+- Session 字段：`bag: Inventory`（createInventory，DEFAULT_SLOTS）、
+  `board: BoardState`（createBoard，**内含 milestones**，§7.7.2）、
+  `story: StoryState`（createStory）。
+- 帧序（§3）：updateEconomy / updateThreats 之后 →
+  `updateBoard(board, res, dt, rng)` → 威胁事件里的 `storm-strike`
+  逐场 `noteStorm(board)` → `updateMilestones(board, res, { day,
+  tiles, purifiers })` → `story = updateStory(story, { day,
+  buildings 计数, elapsed })`。over 时整条链跳过（不调用即冻结）。
+- 捞取入袋：tryScoop 成功后 `addItem(bag, haul.kind, n,
+  { partial: true })`——捞到的建材**同步映射**进袋（同名 id 的设计
+  用途），溢出丢弃。
+- 交单：键位 Q/E 选单交单走 `complete(board, res, id)`；HUD 显示
+  日记卡（story.beat 的 title/body）与当前条子或下一个里程碑
+  （quest 胶囊）。
+
+#### 7.5.1 掉落线（Round 2 已接线，核对过 tryScoop）
+
+数在 constants.ITEM_DROP，实现在 sim/inventory.ts（`createItemPity` /
+`rollItemDrop`，§7.2）：捞取成功后 session 用 **session.rng** 掷
+`rollItemDrop(rng, pity)`——每次**恒消耗 2 次**抽取（命中判定 +
+加权选品），命中与否都一样，掉率怎么调都不挪 rng 序列的位置；保底
+`pity.misses` 由函数自己推进，session 持有该状态。命中后
+`addItem(bag, id, 1, { partial: true })`（袋满整件丢弃，保底不白攒）、
+飘字与图鉴走 markSeen。建材的 dropWeight 是 0，附带掉落只出杂货。
+探针磁带不含捞取动作，基线哈希不受影响。`look` 加权偏向（§7.7.1
+的可选参数）尚未接，接的话不许改变抽取次数。
+
+#### 7.5.2 吃喝线（Round 3 收口）——本轮唯一的新接线
+
+汇率在 constants.ITEM_USE（kelp +4 食 / driedFish +8 食 /
+freshWater +8 水；配套零数值的 `UsableItemId` / `ITEM_USE_IDS` /
+`isUsableItem`）。分工：**opus-items 在 sim/inventory.ts 提供纯函数，
+父调度器在 session 两步接线，fable-sota 给 HUD 袋格点击区（或点击区
+矩形 API），opus-content 给庆祝短音**。正式签名：
+
+```ts
+// sim/inventory.ts（opus-items）——只动袋子，不碰 Resources
+export type UseItemResult =
+  | { ok: true; gain: Readonly<Partial<Record<ResourceId, number>>> } // = ITEM_USE[id]
+  | { ok: false; reason: "not-usable" | "not-in-bag" };
+export function useItem(inv: Inventory, id: ItemId): UseItemResult;
+```
+
+useItem 的行为（单测按这四条断言原子性）：
+
+1. `id` 不在 ITEM_USE（守卫走 `isUsableItem`）→ `not-usable`，
+   袋子分文不动——工具/珍品点了也只是「咬不动」。
+2. 袋里没有 → `not-in-bag`，分文不动（`removeItem(inv, id, 1)`
+   本来就是全或无，不传 partial）。
+3. 成功 = **恰好出袋 1 件**，返回 ITEM_USE[id] 的 gain 单；
+   **不动 Resources**（两本账纪律，§7.2）——入库是 session 的第二步。
+4. 零 rng、零 dt、不抛异常、无中间态；连点两下就是独立的两次调用。
+
+session 两步接线（父调度器；两步各自原子、先出袋后入库、永不倒扣）：
+
+- HUD 袋格点击（非模态、局内，GAME_SPEC §3）→ `useItem(bag, id)`；
+- `ok` 时逐项 `gain(res, k, n)` 入库，超 RESOURCE_CAP 的部分
+  **截断丢弃**——满仓吃是浪费，刻意不挡不退（HUD 可置灰满仓项做
+  提示，契约层不阻止）；
+- 提示走现有 loot / questDone 管道，庆祝短音钩子给 fx
+  （opus-content），不挡舞台；失败路径按 reason 给短句
+  （同 placeHint 的路数）。
+- 门禁归 session：`over` / 非 playing 不响应点击；吃喝是玩家操作，
+  不进 §3 帧序（同 complete）。
+
+探针安全：磁带无袋格点击，且整条线零 rng——snapshot 不扩字段，
+基线 `728b59b5` 稳。
+
+硬约束（Round 2 起生效）：`snapshot()` **冻结**——不加字段不改语义，
+探针哈希须保持 `728b59b5`；新系统状态走 HUD 与 `result()` 结算展示，
+不进 snapshot。`result()` / save.ts 要记生涯交单数、解锁数时只加
+可选字段，读侧缺省回退 0（save.ts 的 num() 已是这个语义）。
+
+### 7.6 constants 第三段现状（fable-arch）
+
+| 表 | 类别 | 说明 |
+| --- | --- | --- |
+| `ITEM_DROP` | 接线时消费 | 捞取附带掉物品的 chance / pityScoops，Round 2 已接（§7.5.1） |
+| `ITEM_USE` | 接线时消费 | 咸海带/鱼干/净水囊 → 资源的兑换率（§7.5.2 吃喝线）；Round 3 配套 `UsableItemId` / `ITEM_USE_IDS` / `isUsableItem`，零新数 |
+| `INVENTORY` | 被运行时消费 | HUD 道具袋条一屏小格数（hudSlots，ui/hud.ts 吃） |
+| `BAG` | 文档镜像 | = inventory 的 DEFAULT_SLOTS（16 格） |
+| `BOARD` | 文档镜像 | = expand 的 BOARD 全表（逐键同名同值） |
+| `JUNK_LOOKS` | Round 2 真相 | 漂浮物穿目录外观的概率（§7.7.1，第四段），junk.ts 直接 import |
+| `MILESTONES` | 文档镜像 | 真相随落地长进 expand.ts 目标链（自带 id/阈值/奖励/文案，§7.7.2）；镜像已对齐实现（id `storm-weathered`） |
+
+inventory / expand **刻意自带数值**（DEFAULT_SLOTS、BOARD、里程碑
+目标链，见各自文件头注释「等定型了再搬过去」）；收编（原件改为
+import constants）待后续轮、归各属主，收编前改平衡改原件、同步
+镜像。收编后必须保持「开局 5 秒内不贴单、不抽 rng」（BOARD.firstS
+= 12 本来就满足）。内容表（物品/模板/条目/里程碑文案与奖励）住
+各自模块不进 constants。既有前两段（CANVAS/LOOP/…/SKIFF）Round 3
+一个数没动，探针基线不受影响。
+
+### 7.7 Round 2 支线契约（海面外观 / 里程碑，均已落地）
+
+与 §7.5 的掉落线/吃喝线并列的另两条支线。数值表命运分岔（Round 3
+核对）：`JUNK_LOOKS` 在 constants 第四段、junk.ts 直接 import，是
+真相；`MILESTONES` 随落地长进 expand.ts 目标链，constants 的同名表
+降级为镜像（§7.6）。共同原则：**不开新经济、不开新场景、不扩
+snapshot**——都是在 Round 1 已有的管道上开支线。
+
+#### 7.7.1 海面刷目录物（opus-content：world/junk.ts + world/items.ts）
+
+- 用**已有**的 `Junk.look` 字段：新刷漂浮物按 `JUNK_LOOKS.chance`
+  （35%）穿一件目录物外观——油布/空油桶/咸海带等，items.ts 已登记
+  14 件的画法，`spawnJunk` 的 `opts.look` 通道也是现成的。
+  look → 建材 kind 的映射是内容，住 junk.ts / items.ts（例：油布→
+  plastic、空油桶→metal、咸海带→wood；一件 look 只配一种 kind，
+  同种子可复现）。
+- **不另开掉落经济**：`Junk.kind` 仍限四种建材；捞取入库仍按 kind
+  走 `gain()`、产出仍按 `SALVAGE.yields` 掷——look 不改产出、不加
+  新 kind、不触发额外入账。玩家看见的是「一只空油桶」，捞到手的
+  是金属。
+- 换装抽取走 `JunkField` 自带的 LCG（同种子同海面），**不碰
+  session.rng**——威胁/请求板的随机序列纹丝不动；探针磁带又不含
+  捞取动作，基线双保险。
+- `JunkHaul.look` 已把外观 id 带回 session：飘字/水花/图鉴按 look
+  表现（「捞到 空油桶」而不是「捞到 金属」），§7.5 掉落线的
+  `rollItemDrop(rng, pity, look)` 也拿它做偏向。
+
+#### 7.7.2 里程碑目标链（opus-play：sim/expand.ts，已落地并接线）
+
+Round 2 已长成并接进 session；落地形态与当初契约有三处出入，按
+「实现即真相」以下述为准（constants.MILESTONES 随之降级为镜像，
+§7.6）：
+
+- **状态并进 BoardState**：`board.milestones: MilestoneState =
+  { done, at, best, storms }`——createBoard 一并创建、resetBoard
+  就地清（HUD 可能正抓着引用）。没有独立的接线点。
+- **id 定名 `storm-weathered`**（旧契约草案的 first-storm 未采用）。
+  四条 id/阈值：first-purifier ≥1、storm-weathered ≥1、raft-12 ≥12、
+  day-3 ≥3。id 是存档/结算的稳定键，落地后别再动。
+- **奖励在函数内结算**：达成即 `gainAll(res, m.reward)` 入库
+  （超上限截断、从不失败），事件带实收 `got`——比旧契约的
+  「session 拿事件走 gain」少一步；原子性与零 rng 不变。
+
+```ts
+export type MilestoneTrack = "purifiers" | "storms" | "tiles" | "day";
+export type MilestoneFacts = { day?; tiles?; purifiers?; storms? }; // 缺项按 0（= 还没达成）
+export type MilestoneState = { done: MilestoneId[]; at; best; storms };
+export function noteStorm(state: BoardState, n?: number): void;  // storm-strike 事件时喂
+/** 各轨道 best 只涨不跌 → 逐条查表序结算，事件 { type: "milestone-done", milestone, got }。
+ *  不吃 dt、不抽 rng、不碰板上条子；一帧调几次都一样（done 去重）。 */
+export function updateMilestones(state: BoardState, res: Resources,
+  facts?: MilestoneFacts): BoardEvent[];
+// HUD / 结算的只读派生
+export function milestoneProgress(state, facts?): MilestoneProgress[];
+export function nextMilestone(state, facts?): MilestoneProgress | null; // 挂「当前目标」
+export function milestoneDone(state, id): boolean;
+export function milestoneSummary(state): MilestoneSummary; // { done, total, ratio, latest }
+```
+
+- `best` 每轨只涨不跌：拆了净水机、风暴啃回格数都不会撤销已达成，
+  也不会重复发奖；同帧多条按表序结算，事件顺序可复现。达成顺手写
+  board.diary（tone: "good"），请求板日记免费获得展示。
+- 接线（已核对 session.ts）：帧序在 updateBoard 之后（§3）；
+  storm-strike 事件逐场 noteStorm；facts 传 { day, tiles,
+  purifiers }。达成走 questDone 庆祝管道（milestone-done 事件），
+  板上没条子时 `nextMilestone` 挂 HUD「当前目标」。
+- 可测：单测直接断言 `board.milestones.done`（如 headless 铺到
+  12 格后 done 含 `"raft-12"`）；同条不重复达成。
+- 探针安全（三重）：判定零 rng；探针窗口内（第 1 天、至多 11 格、
+  零净水机、零风暴）一条不触发；里程碑不进 snapshot()。
+
+## 8. 未决事项（交给后续轮）
+
+- **吃喝线本轮（Round 3）收口**：四条支线已接三条（掉落 §7.5.1、
+  海面外观与里程碑 §7.7），只剩 ITEM_USE 吃喝线——契约 §7.5.2
+  （inventory 出 `useItem`，session 两步接线，HUD 袋格可点，庆祝
+  短音进 fx）；接完 GAME_SPEC §9 的新验收条目才可全绿。
+- BAG / BOARD / MILESTONES 的收编（inventory / expand 原件改为
+  import constants）待后续轮，归各属主；收编前 constants 里是镜像
+  （MILESTONES 镜像 Round 3 已对齐实现的 id/轨道）。
+- 道具袋与请求板暂不相通：条子只收资源账本里的建材，「收袋装物品
+  的条子」和工具类物品（扳手/鱼钩/急救包）的机械效果是后续议题。
+- 局中进度存档（库存/格子/威胁计时/袋子/板面）仍未做；save.ts 目前
+  只落生涯纪录。袋子侧已备好 `inventorySnapshot` / `restoreInventory`，
+  入档时按 §0 的增量可选字段规矩来。
 - `refund` / `scrapValue` 已在 sim 备好但没接进玩家操作（无拆迁按钮）。
-- 让 sim/entities 直接 import constants（收编为唯一真源）：**Round 3
-  归 opus-core**。fable-arch 侧已完成前置：数字逐项对齐、删除废弃的
-  `StructureId`（旧名 `hq`）别名与旧网格叙事，镜像段可直接被 import。
+- 人口 = 3 + 每座非地基建筑 1（economy CREW），是被动增长；请求板的
+  `who` 只是代称，不是真岛民实体——岛民个体化仍是后续议题。
+- 物品吃喝 / 交单的具体键位与点击区归 fable-sota 定，本文只约束
+  「局内、非模态」；触屏适配同理。
 - 音频节点图、HUD 具体布局分别归 opus-content / fable-sota，不在本文约束。

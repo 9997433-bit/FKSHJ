@@ -1,18 +1,22 @@
-# Round 3 结论
+# Round 3 简报 — SOTA 收口
 
-六路均已交卷。父调度器已把 HUD `placeHint` 接到放置失败提示。
-`npm test` 11/11，探针仍为 `728b59b5`。
+Round 1–2 已接线。探针须保持 `728b59b5`。`snapshot()` 不要扩字段。
 
-| 角色 | 产出 |
-| --- | --- |
-| fable-arch | 删掉 hq/48px 叙事；标明 constants 分类 |
-| fable-sota | 预警层打磨、可选 `placeHint`、结算 350ms 防误触重开 |
-| opus-content | 船体色号不再像漂浮物；夜灯改靠衬底读 |
-| opus-core | sim/entities 改读 constants；对外 TILE/RAFT_ORIGIN 形状不变 |
-| gpt-test | placeHint / scoop 一致 / 新纪录文案，11 测 |
-| gpt-probe | BENCH 按当时 HEAD 刷新 |
+## 本轮只做这些
 
-## 还没关的口
+1. **点袋吃喝**：读 `constants.ITEM_USE`（kelp / driedFish / freshWater → `gain`）。原子出袋，满仓截断。session 接线仍归父调度器；你们只提供 `useItem(inv, id)` 一类纯函数。
+2. **HUD**：袋格可点（或给出点击区矩形 API）；庆祝音效钩子给 fx，不要挡舞台。不传新字段则与现在一致。
+3. **音效**：任务完成 / 里程碑短音，不引入官方曲。
+4. **打磨**：夜景/剪影可读、菜单/gameover 空格防误触仍在。
+5. **单测**：ITEM_USE 原子性；旧 17 测必须仍绿。
+6. **规格**：写清吃喝线与「合 main 后 Pages 地址」：入口 `/`，游戏 `/games/sea/`。
 
-- 浏览器里用键鼠走完一局（捞、建、停、死、再来）未当验收关掉
-- GitHub Pages 跟 `main`，合入前线上仍是旧滑道
+## 不要做
+
+官方 IP；改 TILE/花费/风暴；扩 snapshot；搬回根 `src/`；静默换模型；自己合 main。
+
+## Round 3 收口（父调度器）
+
+已接线：点袋 → `useItem`；`sfx.questDone` / `sfx.milestone`。
+`npm test` 21/21，探针仍 `728b59b5`。
+合 main 后 Pages：入口 https://9997433-bit.github.io/FKSHJ/ ，游戏 https://9997433-bit.github.io/FKSHJ/games/sea/

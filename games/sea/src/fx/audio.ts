@@ -9,6 +9,11 @@
  *   不让环境音在零增益后面空转。
  * - 每个音效都是「几个振荡器 + 一段带通白噪」的短包络，
  *   互不共享节点，随便同时触发也不会互相掐断。
+ * - 全部现场合成，也就没有任何一段是**引用**来的曲子：这里不存在
+ *   官方主题、不存在采样，只有几个频率和包络。
+ *
+ * 完成音（`questDone` / `milestone`）另有一条排期，见下面的 `CHEER`。
+ * 接线归父调度器：`request-done` → `questDone()`，`milestone-done` → `milestone()`。
  */
 
 export type SfxOptions = {
@@ -46,6 +51,27 @@ type AmbientRig = {
   lfo: OscillatorNode;
 };
 
+/* ------------------------------------------------------------------ *
+ * 庆祝音的排期
+ *
+ * `updateBoard` / `updateMilestones` 可以在**同一帧**吐出好几条完成事件
+ * （一条子刚交差，同一次入库正好压过里程碑的线）。照着事件挨个播，几声会
+ * 落在同一个 `currentTime` 上叠成一记糊掉的爆音——听不出是一件事还是三件。
+ * 所以完成音统一走一条排期：后到的往后让，依次响成「叮…叮…」。
+ * ------------------------------------------------------------------ */
+
+const CHEER = {
+  /** 两声「条子交差」之间至少让开这么久（秒） */
+  questGapS: 0.34,
+  /** 里程碑那声长，后一声不能压在前一声的尾巴上 */
+  milestoneGapS: 0.72,
+  /**
+   * 排到这个延迟以外就整声丢掉。
+   * 一口气结算五条也不会在事情早就过去之后还拖着一串迟到的叮咚。
+   */
+  queueCapS: 1.3,
+} as const;
+
 export class Sfx {
   private ctx: AudioContext | null = null;
   private master: GainNode | null = null;
@@ -55,6 +81,8 @@ export class Sfx {
   private lastWarnAt = -99;
   private lastScoopAt = 0;
   private scoopStep = 0;
+  /** 下一声庆祝最早能从什么时候开始（见 `CHEER`） */
+  private nextCheerAt = 0;
   /** 白噪缓冲只建一次：水花、锤击、撞击、风声都从它上面取 */
   private noiseBuf: AudioBuffer | null = null;
 
@@ -305,11 +333,58 @@ export class Sfx {
     }
   }
 
+  /**
+   * 慢起音的持续音：`tone` 是「敲一下」，这个是「涨起来」。
+   *
+   * 差别全在起音时间上——`tone` 封顶 15ms 到峰值，那是一记敲击；
+   * 把起音拉到一两百毫秒，同样的频率就成了一层涨上来的和声。
+   * 里程碑那种「压住场」的分量靠的就是这个，不是靠调大音量。
+   */
+  private bloom(
+    freq: number,
+    dur: number,
+    type: OscillatorType,
+    gain: number,
+    delay = 0,
+    attack = 0.18,
+  ): void {
+    const ctx = this.ctx;
+    if (!ctx || this.muted) return;
+    const t0 = ctx.currentTime + delay;
+    // 起音不许长过整声的七成，否则还没到峰值就开始收，听上去只是一团糊
+    const rise = Math.min(Math.max(0.02, attack), dur * 0.7);
+    const o = ctx.createOscillator();
+    const g = ctx.createGain();
+    o.type = type;
+    o.frequency.setValueAtTime(freq, t0);
+    g.gain.setValueAtTime(0.0001, t0);
+    g.gain.exponentialRampToValueAtTime(Math.max(0.0002, gain), t0 + rise);
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+    o.connect(g).connect(this.master ?? ctx.destination);
+    o.start(t0);
+    o.stop(t0 + dur + 0.02);
+  }
+
   /** 短琶音：几个音依次落下。 */
   private arp(freqs: number[], type: OscillatorType, gain: number, step = 0.06, dur = 0.14): void {
     for (let i = 0; i < freqs.length; i++) {
       this.tone(freqs[i], dur, type, gain * (1 - i * 0.08), i * step);
     }
+  }
+
+  /**
+   * 给这一声庆祝领一个开始时间，返回相对现在的延迟（秒）。
+   * 队伍排到 `CHEER.queueCapS` 以外返回 -1 —— 这一声不播。
+   */
+  private cheerSlot(spacing: number): number {
+    const ctx = this.ctx;
+    if (!ctx) return 0;
+    const now = ctx.currentTime;
+    const at = Math.max(now, this.nextCheerAt);
+    const delay = at - now;
+    if (delay > CHEER.queueCapS) return -1;
+    this.nextCheerAt = at + spacing;
+    return delay;
   }
 
   /* ---------------------------------------------------------------- *
@@ -370,6 +445,56 @@ export class Sfx {
   shoot(): void {
     this.tone(240, 0.1, "square", 0.04, 0, 90);
     this.noise(0.1, 0.035, 3200, 700);
+  }
+
+  /**
+   * 岛民的条子交差了：一声「勾掉了」。
+   *
+   * 接 `expand.ts` 的 `request-done`。和已有的几声都要分得开，否则玩家
+   * 只知道「响了一下」，不知道响的是哪件事：
+   * - `build()` 是两记木锤加一个完成音——那是**动手**；这里一记不敲，
+   *   只有撕纸的一下和一个清脆的上行。
+   * - `scoop()` 是「哗」的一把水；交差是「叮」。
+   * - `milestone()` 比它重一档、长一倍，两者一前一后响也听得出层级。
+   *
+   * 全长 0.26s 上下：短到只是个记号，不构成一句旋律。
+   */
+  questDone(): void {
+    const at = this.cheerSlot(CHEER.questGapS);
+    if (at < 0) return;
+    // 条子从板上撕下来的那一下
+    this.noise(0.07, 0.026, 5400, 2100, at, 1.8);
+    // 纯四度上行的两声木琴
+    this.tone(880, 0.1, "sine", 0.04, at + 0.02);
+    this.tone(1174.7, 0.17, "sine", 0.034, at + 0.09);
+    // 高八度的泛音，把「叮」的金属感垫出来
+    this.tone(2349.3, 0.08, "sine", 0.011, at + 0.09);
+    // 一点低频木底，免得整声发飘
+    this.tone(233.1, 0.13, "triangle", 0.02, at + 0.02, 174.6);
+  }
+
+  /**
+   * 目标链前进一格：比交差重一档，但仍然是**一声**，不是一段。
+   *
+   * 接 `expand.ts` 的 `milestone-done`。分量来自三层，不是来自音量：
+   * 底下一记沉下去的闷响（交差那声完全没有低频）、中间根音／五度／八度
+   * 用 `bloom` 的慢起音一层层涨起来、最后一条扫下去的气声尾巴。
+   *
+   * 全长 0.8s 上下。仍然是短音：够玩家抬头看一眼 HUD，不至于盖住下一波风暴预警。
+   */
+  milestone(): void {
+    const at = this.cheerSlot(CHEER.milestoneGapS);
+    if (at < 0) return;
+    // 底：一记沉下去的闷响
+    this.tone(98, 0.42, "sine", 0.045, at, 65.4);
+    // 主体：根音 + 五度 + 八度依次涨起来，慢起音才是「涨」而不是「敲」
+    this.bloom(196, 0.72, "triangle", 0.03, at + 0.03, 0.16);
+    this.bloom(293.7, 0.66, "triangle", 0.024, at + 0.09, 0.18);
+    this.bloom(392, 0.6, "sine", 0.02, at + 0.15, 0.2);
+    // 尾巴：一层扫下去的气声，像风把这一下带走
+    this.noise(0.75, 0.022, 4200, 700, at + 0.05, 0.6);
+    // 顶上一颗亮星，落在和声站稳之后
+    this.tone(1568, 0.3, "sine", 0.014, at + 0.22);
   }
 
   /** 熬过一天：一串上行钟音。 */

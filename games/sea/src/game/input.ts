@@ -23,8 +23,10 @@ const UP_KEYS = ["KeyW", "ArrowUp"];
 const DOWN_KEYS = ["KeyS", "ArrowDown"];
 const SCOOP_KEYS = ["Space"];
 const PAUSE_KEYS = ["KeyP", "Escape"];
+/** 交付岛民请求板当前条子 */
+const DELIVER_KEYS = ["KeyQ", "KeyE"];
 /** 游戏自己吃掉的键：不许浏览器拿去滚页面 */
-const OWNED_KEYS = [...LEFT_KEYS, ...RIGHT_KEYS, ...UP_KEYS, ...DOWN_KEYS, ...SCOOP_KEYS];
+const OWNED_KEYS = [...LEFT_KEYS, ...RIGHT_KEYS, ...UP_KEYS, ...DOWN_KEYS, ...SCOOP_KEYS, ...DELIVER_KEYS];
 
 /** 拖动超过这个距离才算「摇杆」，否则算点按 */
 const DRAG_PX = 18;
@@ -56,6 +58,8 @@ export type InputState = {
   readonly pointerOver: boolean;
   consumeScoop(): boolean;
   consumePause(): boolean;
+  /** 取一次「交付条子」按键；没有返回 false */
+  consumeDeliver(): boolean;
   /** 取一次未处理的点击；没有返回 null */
   consumeClick(): ClickPoint | null;
   /** UI 按钮改选中态用；传 null 取消选中 */
@@ -90,6 +94,7 @@ export function createInput(target: HTMLElement): InputState {
 
   let scoopQueued = false;
   let pauseQueued = false;
+  let deliverQueued = false;
   let selected: PlaceableId | null = null;
   const pointer: Vec2 = { x: CANVAS.w / 2, y: CANVAS.h / 2 };
   let pointerOver = false;
@@ -127,6 +132,7 @@ export function createInput(target: HTMLElement): InputState {
   const clearQueued = () => {
     scoopQueued = false;
     pauseQueued = false;
+    deliverQueued = false;
     clicks.length = 0;
     endDrag();
   };
@@ -148,6 +154,7 @@ export function createInput(target: HTMLElement): InputState {
     if (!pressed || e.repeat) return;
 
     if (SCOOP_KEYS.includes(e.code)) scoopQueued = true;
+    if (DELIVER_KEYS.includes(e.code)) deliverQueued = true;
     if (PAUSE_KEYS.includes(e.code)) {
       // Esc 先当「取消选中」，没得取消才当暂停
       if (e.code === "Escape" && selected !== null) selected = null;
@@ -266,6 +273,11 @@ export function createInput(target: HTMLElement): InputState {
     consumePause() {
       const v = pauseQueued;
       pauseQueued = false;
+      return v;
+    },
+    consumeDeliver() {
+      const v = deliverQueued;
+      deliverQueued = false;
       return v;
     },
     consumeClick() {

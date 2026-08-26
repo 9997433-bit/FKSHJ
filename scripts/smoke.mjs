@@ -2,15 +2,16 @@ import { readFileSync, statSync } from "node:fs";
 
 const required = [
   "index.html",
+  "games/sea/index.html",
   "package.json",
   "tsconfig.json",
   "vite.config.ts",
-  "src/main.ts",
-  "src/session.ts",
-  "src/data/constants.ts",
-  "src/game/engine.ts",
-  "src/game/loop.ts",
-  "src/index.css",
+  "games/sea/src/main.ts",
+  "games/sea/src/session.ts",
+  "games/sea/src/data/constants.ts",
+  "games/sea/src/game/engine.ts",
+  "games/sea/src/game/loop.ts",
+  "games/sea/src/index.css",
   ".agent_workspace/GAME_SPEC.md",
   ".agent_workspace/PROGRESS.md",
   ".agent_workspace/BENCH.md",
@@ -28,9 +29,11 @@ for (const f of required) {
     failures.push(`missing ${f}`);
   }
 }
-const html = readFileSync("index.html", "utf8");
-if (!html.includes("疯狂水世界")) failures.push("index.html missing title");
-if (!html.includes('id="game"')) failures.push("index.html missing canvas");
+const hub = readFileSync("index.html", "utf8");
+if (!hub.includes("games/sea")) failures.push("hub missing sea link");
+const html = readFileSync("games/sea/index.html", "utf8");
+if (!html.includes("疯狂水世界")) failures.push("sea index.html missing title");
+if (!html.includes('id="game"')) failures.push("sea index.html missing canvas");
 if (failures.length) {
   for (const f of failures) console.error(f);
   process.exit(1);

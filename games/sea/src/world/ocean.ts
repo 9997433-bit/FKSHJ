@@ -64,62 +64,69 @@ export type SeaPalette = {
   danger: string;
 };
 
+/**
+ * 海面色板立法（质感，不是玩法）。
+ *
+ * 环境必须是「哑光的死水」：饱和度压在中低档，明度不过曝。
+ * 高饱和只许出现在信息点——可建造、危险、夜里那盏灯——不能铺满整片海。
+ * 白天禁止糖果青、夜里禁止荧光青绿；黄昏走锈铜与烟灰，不走品红汽水。
+ */
 export const SEA_PALETTES: Record<SeaPhaseId, SeaPalette> = {
   dawn: {
     id: "dawn",
     name: "黎明",
-    shallow: "#3f7f95",
-    deep: "#132c46",
-    wave: "#9fc7d8",
-    foam: "#ffeede",
-    caustic: "#a9dcea",
-    sunken: "#0f2338",
-    glint: "#ffbe86",
-    ink: "#f5f9ff",
-    accent: "#ffc46b",
-    danger: "#ff6b7a",
+    shallow: "#3a6474",
+    deep: "#122433",
+    wave: "#8aa8b4",
+    foam: "#efe4d4",
+    caustic: "#7a9aa6",
+    sunken: "#0d1c28",
+    glint: "#d4a06a",
+    ink: "#f0ece4",
+    accent: "#d4a24a",
+    danger: "#d46858",
   },
   day: {
     id: "day",
     name: "白昼",
-    shallow: "#3fc4da",
-    deep: "#0a5a80",
-    wave: "#c2f4fb",
-    foam: "#ffffff",
-    caustic: "#d6faff",
-    sunken: "#0d4a6b",
-    glint: "#fff4c2",
-    ink: "#f4feff",
-    accent: "#ffd166",
-    danger: "#ff5470",
+    shallow: "#2d6a76",
+    deep: "#0b2a38",
+    wave: "#86b0b8",
+    foam: "#e6eef0",
+    caustic: "#5f8f9a",
+    sunken: "#0a2230",
+    glint: "#d8c07a",
+    ink: "#eef2f0",
+    accent: "#c9a24a",
+    danger: "#d45c58",
   },
   dusk: {
     id: "dusk",
     name: "黄昏",
-    shallow: "#7a5a86",
-    deep: "#1d1033",
-    wave: "#ffb08a",
-    foam: "#ffdcc4",
-    caustic: "#d79ac0",
-    sunken: "#170e28",
-    glint: "#ff9463",
-    ink: "#fff2ea",
-    accent: "#ffb703",
-    danger: "#ff4d6d",
+    shallow: "#5a4a58",
+    deep: "#1a1224",
+    wave: "#c48a6a",
+    foam: "#f0d8c4",
+    caustic: "#8a6a6e",
+    sunken: "#120e1c",
+    glint: "#c87848",
+    ink: "#f4ece4",
+    accent: "#c98a3a",
+    danger: "#d45650",
   },
   night: {
     id: "night",
     name: "夜",
-    shallow: "#123c5e",
-    deep: "#020a16",
-    wave: "#5b89b4",
-    foam: "#c3dcff",
-    caustic: "#4d86b5",
-    sunken: "#010710",
-    glint: "#9fc2ff",
-    ink: "#e8f2ff",
-    accent: "#59f2d6",
-    danger: "#ff5a7a",
+    shallow: "#163448",
+    deep: "#040810",
+    wave: "#4a6e86",
+    foam: "#c4d4e4",
+    caustic: "#3a5e72",
+    sunken: "#02060c",
+    glint: "#8aa4c4",
+    ink: "#e0e8f0",
+    accent: "#7ab4a8",
+    danger: "#d46058",
   },
 };
 
@@ -220,6 +227,23 @@ export function nightness(elapsed: number): number {
   return 0;
 }
 
+/**
+ * 月光镶边色 —— 夜里把深色轮廓从深色海面上「切」出来的那圈冷白。
+ *
+ * 夜相位的水是 `#020a16`–`#123c5e`，物件自带的暗描边（`items.ts` 的 `rim`
+ * 用 `ink.dark`）落上去等于没画：轮廓一糊，玩家只能靠色块猜那是什么。
+ * 俯视的海面上本来就有一层月光，贴着浮体边缘的那一线是真实存在的光，
+ * 拿它当镶边既救得回轮廓，又不用把物件本体点亮成灯泡。
+ *
+ * `bias` 是掺进去的物件本色：全白的边会把二十来种剪影的色相线索抹平，
+ * 掺三成回来，边缘仍然亮，但木头的边偏暖、铁皮的边偏冷。
+ */
+export const MOONLIGHT = "#cfe3ff";
+
+export function moonRim(tint: string, bias = 0.32): string {
+  return mixHex(MOONLIGHT, tint, bias);
+}
+
 /** 相位 → 配色，相邻相位整段平滑过渡。 */
 export function paletteAt(phase01: number): SeaPalette {
   const t = clamp01(phase01 - Math.floor(phase01));
@@ -307,21 +331,46 @@ export function drawOcean(ctx: CanvasRenderingContext2D, view: SeaView): SeaPale
   return p;
 }
 
-/** 水的底色：中心浅、四周深，像镜头下方是一片浅滩。 */
+/** 水的底色：中心浅滩、四周深渊，再叠一层脏化深度，水面才有厚度。 */
 export function drawWater(ctx: CanvasRenderingContext2D, p: SeaPalette): void {
   const g = ctx.createRadialGradient(
     CANVAS.w * 0.5,
     CANVAS.h * 0.46,
-    CANVAS.h * 0.12,
+    CANVAS.h * 0.1,
     CANVAS.w * 0.5,
     CANVAS.h * 0.5,
-    CANVAS.w * 0.72,
+    CANVAS.w * 0.76,
   );
-  g.addColorStop(0, p.shallow);
-  g.addColorStop(0.55, mixHex(p.shallow, p.deep, 0.55));
+  g.addColorStop(0, mixHex(p.shallow, p.glint, 0.08));
+  g.addColorStop(0.28, p.shallow);
+  g.addColorStop(0.62, mixHex(p.shallow, p.deep, 0.58));
   g.addColorStop(1, p.deep);
   ctx.fillStyle = g;
   ctx.fillRect(0, 0, CANVAS.w, CANVAS.h);
+  drawDepthMottle(ctx, p);
+}
+
+/**
+ * 深度脏化：散列的软斑把径向渐变撕成「海底高低」，
+ * 否则整片水是一块塑料渐变，没有任何材质。
+ */
+function drawDepthMottle(ctx: CanvasRenderingContext2D, p: SeaPalette): void {
+  ctx.save();
+  for (let i = 0; i < 42; i++) {
+    const x = hash01(i * 3.1) * CANVAS.w;
+    const y = hash01(i * 7.7) * CANVAS.h;
+    const rx = 48 + hash01(i * 2.2) * 110;
+    const ry = rx * (0.45 + hash01(i * 5.5) * 0.4);
+    const deep = hash01(i * 9.3) > 0.42;
+    const blob = ctx.createRadialGradient(x, y, 4, x, y, rx);
+    blob.addColorStop(0, withAlpha(deep ? p.deep : mixHex(p.shallow, p.caustic, 0.35), deep ? 0.28 : 0.12));
+    blob.addColorStop(1, withAlpha(p.deep, 0));
+    ctx.fillStyle = blob;
+    ctx.beginPath();
+    ctx.ellipse(x, y, rx, ry, hash01(i) * Math.PI, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.restore();
 }
 
 /* ------------------------------------------------------------------ *
@@ -417,21 +466,34 @@ export function drawCaustics(
   time: number,
   storm01 = 0,
 ): void {
-  const step = 64;
+  const step = 56;
+  const veil = 1 - storm01 * 0.75;
   ctx.save();
   ctx.globalCompositeOperation = "lighter";
-  ctx.strokeStyle = p.caustic;
-  ctx.lineWidth = 1.2;
-  for (let gy = -1; gy <= CANVAS.h / step + 1; gy++) {
-    ctx.beginPath();
-    for (let gx = 0; gx <= CANVAS.w / step + 1; gx++) {
-      const x = gx * step;
-      const y = gy * step + Math.sin(x * 0.02 + time * 0.9 + gy) * 12;
-      if (gx === 0) ctx.moveTo(x, y);
-      else ctx.quadraticCurveTo(x - step * 0.5, y + Math.cos(x * 0.03 - time) * 10, x, y);
+  ctx.lineCap = "round";
+  for (let pass = 0; pass < 2; pass++) {
+    const speed = pass === 0 ? 0.72 : -0.48;
+    const warp = pass === 0 ? 14 : 9;
+    ctx.strokeStyle = pass === 0 ? p.caustic : mixHex(p.caustic, p.glint, 0.22);
+    ctx.lineWidth = pass === 0 ? 1.35 : 0.9;
+    for (let gy = -1; gy <= CANVAS.h / step + 1; gy++) {
+      ctx.beginPath();
+      for (let gx = 0; gx <= CANVAS.w / step + 1; gx++) {
+        const x = gx * step + (pass === 1 ? step * 0.4 : 0);
+        const y = gy * step + Math.sin(x * 0.018 + time * speed + gy * 0.7) * warp;
+        if (gx === 0) ctx.moveTo(x, y);
+        else {
+          ctx.quadraticCurveTo(
+            x - step * 0.5,
+            y + Math.cos(x * 0.028 - time * (0.8 + pass * 0.3) + gy) * (8 + pass * 4),
+            x,
+            y,
+          );
+        }
+      }
+      ctx.globalAlpha = (0.055 + Math.abs(Math.sin(time * 0.55 + gy * 0.5 + pass)) * 0.06) * veil;
+      ctx.stroke();
     }
-    ctx.globalAlpha = (0.05 + Math.abs(Math.sin(time * 0.7 + gy * 0.6)) * 0.05) * (1 - storm01 * 0.7);
-    ctx.stroke();
   }
   ctx.restore();
   ctx.globalAlpha = 1;
@@ -495,22 +557,34 @@ export function drawCrests(
   ctx.globalAlpha = 1;
 }
 
-/** 漂过来的泡沫团：散落的小白点，顺流慢慢移动。 */
+/** 漂过来的泡沫团：软边主斑 + 两三粒碎沫，顺流慢慢移动。 */
 export function drawFoamPatches(ctx: CanvasRenderingContext2D, p: SeaPalette, time: number): void {
   const dx = Math.cos(SEA.currentDir) * SEA.currentPxS;
   const dy = Math.sin(SEA.currentDir) * SEA.currentPxS;
   const spanX = CANVAS.w + 200;
   const spanY = CANVAS.h + 200;
   ctx.save();
-  ctx.fillStyle = p.foam;
-  for (let i = 0; i < 54; i++) {
+  for (let i = 0; i < 36; i++) {
     const x = (((hash01(i * 2.7) * spanX + time * dx) % spanX) + spanX) % spanX - 100;
     const y = (((hash01(i * 6.1) * spanY + time * dy) % spanY) + spanY) % spanY - 100;
-    const r = 1.4 + hash01(i * 8.3) * 3.4;
-    ctx.globalAlpha = 0.06 + Math.abs(Math.sin(time * 1.6 + i)) * 0.12;
+    const r = 3.2 + hash01(i * 8.3) * 7;
+    const pulse = 0.05 + Math.abs(Math.sin(time * 1.15 + i)) * 0.09;
+    const blob = ctx.createRadialGradient(x, y, 0.4, x, y, r * 2.4);
+    blob.addColorStop(0, withAlpha(p.foam, pulse * 1.4));
+    blob.addColorStop(0.45, withAlpha(p.foam, pulse * 0.45));
+    blob.addColorStop(1, withAlpha(p.foam, 0));
+    ctx.fillStyle = blob;
     ctx.beginPath();
-    ctx.ellipse(x, y, r * 2.2, r, SEA.currentDir, 0, Math.PI * 2);
+    ctx.ellipse(x, y, r * 2.3, r, SEA.currentDir, 0, Math.PI * 2);
     ctx.fill();
+    ctx.fillStyle = withAlpha(p.foam, pulse);
+    for (let k = 0; k < 2; k++) {
+      const ox = (hash01(i * 4.1 + k) - 0.5) * r * 2.8;
+      const oy = (hash01(i * 6.8 + k) - 0.5) * r * 1.4;
+      ctx.beginPath();
+      ctx.ellipse(x + ox, y + oy, 1.1 + k, 0.7, SEA.currentDir, 0, Math.PI * 2);
+      ctx.fill();
+    }
   }
   ctx.restore();
   ctx.globalAlpha = 1;

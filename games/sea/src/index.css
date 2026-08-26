@@ -7,13 +7,13 @@
  */
 
 :root {
-  --bg: #06303f;
-  --panel: rgba(7, 38, 52, 0.82);
-  --ink: #f7fbf3;
-  --accent: #3be0c8; /* 潟湖青：链接/描边/次要强调 */
-  --sun: #ffce54; /* 暖阳黄：数字/主强调 */
-  --coral: #ff8a5c; /* 珊瑚：危险但不吓人 */
-  --wood: #d29a5b; /* 木筏棕：材质点缀 */
+  --bg: #0a161c;
+  --panel: rgba(14, 18, 24, 0.86);
+  --ink: #ece8e0;
+  --accent: #4aa89c;
+  --sun: #d4b45a;
+  --coral: #d47858;
+  --wood: #b08a54;
 }
 
 * {
@@ -29,7 +29,7 @@ body,
   height: 100%;
   overflow: hidden;
   /* 顶部一抹晨光，往下沉进海里：末世的海，也得是晒得到太阳的海 */
-  background: radial-gradient(circle at 50% 8%, #148599 0%, #0a4a5c 42%, #06303f 78%);
+  background: radial-gradient(circle at 48% 6%, #2a4a52 0%, #122830 46%, #0a161c 80%);
   font-family: "Trebuchet MS", "PingFang SC", "Microsoft YaHei", sans-serif;
   color: var(--ink);
   user-select: none;
@@ -47,7 +47,7 @@ body,
   display: block;
   border-radius: 12px;
   box-shadow: 0 20px 80px rgba(0, 10, 16, 0.5);
-  background: #063a4d;
+  background: #0c1c24;
 }
 
 /* ---------- 菜单浮层 ---------- */
@@ -71,12 +71,14 @@ body,
   scrollbar-width: thin;
   scrollbar-color: rgba(255, 255, 255, 0.25) transparent;
   padding: 30px 34px 24px;
-  border-radius: 22px;
-  background: var(--panel);
-  border: 1px solid rgba(255, 206, 84, 0.28);
+  border-radius: 16px;
+  background:
+    linear-gradient(180deg, rgba(48, 36, 24, 0.92) 0%, rgba(16, 14, 12, 0.94) 100%);
+  border: 1px solid rgba(168, 132, 78, 0.32);
   box-shadow:
-    0 16px 60px rgba(0, 16, 24, 0.5),
-    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+    0 18px 48px rgba(0, 6, 10, 0.55),
+    inset 0 1px 0 rgba(232, 208, 150, 0.16),
+    inset 0 -18px 28px rgba(0, 0, 0, 0.22);
   text-align: center;
   backdrop-filter: blur(10px);
   animation: panel-in 0.26s ease-out both;
@@ -97,9 +99,7 @@ body,
   font-size: clamp(32px, 6vw, 52px);
   letter-spacing: 0.08em;
   color: var(--sun);
-  text-shadow:
-    0 4px 0 rgba(107, 60, 10, 0.55),
-    0 0 26px rgba(255, 206, 84, 0.4);
+  text-shadow: 0 2px 0 rgba(40, 24, 8, 0.65);
 }
 
 .overlay .tag {
@@ -202,8 +202,8 @@ body,
   margin-bottom: 10px;
   padding: 4px 16px;
   border-radius: 999px;
-  background: linear-gradient(90deg, var(--coral), var(--sun));
-  color: #3c1a06;
+  background: var(--sun);
+  color: #2e1c08;
   font-size: 14px;
   font-weight: 800;
   letter-spacing: 0.12em;
@@ -237,8 +237,8 @@ body,
   min-width: 132px;
   border: 0;
   border-radius: 999px;
-  background: linear-gradient(180deg, #ffd76a, #ff9f43);
-  color: #55300a;
+  background: linear-gradient(180deg, #d8b45a, #9a6e2e);
+  color: #2e1c08;
   font-family: inherit;
   font-weight: 800;
   font-size: 16px;
