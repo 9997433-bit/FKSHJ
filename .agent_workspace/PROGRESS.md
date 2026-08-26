@@ -28,7 +28,7 @@
 
 | 角色 | 环境 | Agent ID | 状态 |
 | --- | --- | --- | --- |
-| fable-arch | cloud | `bc-658d8d8d-37c1-5405-84a2-37bc3e355b2a` | 进行中 |
+| fable-arch | cloud | `bc-658d8d8d-37c1-5405-84a2-37bc3e355b2a` | 已完成（ARCHITECTURE + 数值表已在分支上） |
 | fable-sota | cloud | `bc-40ef3122-9243-503b-915a-449b96c3ec03` | 进行中 |
 | opus-content | cloud | `bc-6b3e6f99-a4b1-5e24-9993-57af91344234` | 进行中 |
 | opus-core | local | `bc-3ba5f66e-a5a2-5ac1-ab94-9b21edbb7260` | 已交卷（sim/小船/输入） |
