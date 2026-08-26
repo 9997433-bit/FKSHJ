@@ -20,15 +20,27 @@ import { swayAt, withAlpha, type SeaPalette } from "./ocean";
 
 export { TILE, tileCenter, worldToTile };
 
-/** 结构主色：幽灵预览、HUD 图标、选中描边共用。 */
+/**
+ * 结构主色：信息色，不是环境色。
+ * 饱和度只留给「这格是什么」——甲板本身走哑光木，不许跟这些抢。
+ */
 export const STRUCTURE_TINT: Record<BuildingId, string> = {
-  core: "#ffd166",
-  floor: "#c08b52",
-  collector: "#7cf7ff",
-  purifier: "#8ee6ff",
-  fish: "#9be86b",
-  turret: "#ff8a5c",
+  core: "#d4b24a",
+  floor: "#9a7044",
+  collector: "#5aa8b0",
+  purifier: "#6a9eb0",
+  fish: "#7aaa58",
+  turret: "#c86a48",
 };
+
+/** 甲板木色：偏灰的湿木，禁止橙棕塑料贴面。 */
+const WOOD = {
+  light: "#c4a06a",
+  mid: "#9a7044",
+  dark: "#5a3a22",
+  wet: "#6a4a2e",
+  end: "#4a2e18",
+} as const;
 
 /**
  * 绘制需要的格子信息。`sim` 的 `Cell` 直接满足它；
@@ -189,7 +201,7 @@ function drawCellShadow(ctx: CanvasRenderingContext2D, c: RaftCellView): void {
   ctx.restore();
 }
 
-/** 一格甲板：木色 + 板缝 + 受光 + 破损裂纹。 */
+/** 一格甲板：四条实木、顺纹、左上主光、边角磨损；湿只出现在溅到水的边。 */
 function drawDeck(ctx: CanvasRenderingContext2D, c: RaftCellView, view: RaftView): void {
   const rect = tileRect(c.gx, c.gy);
   const grow = clamp01(c.grow01 ?? 1);
@@ -203,31 +215,102 @@ function drawDeck(ctx: CanvasRenderingContext2D, c: RaftCellView, view: RaftView
   ctx.globalAlpha = 0.2 + grow * 0.8;
   ctx.translate(-TILE / 2, -TILE / 2);
 
-  const shade = hash01(seed);
-  ctx.fillStyle = shade < 0.34 ? "#b07c4b" : shade < 0.7 ? "#bd8850" : "#a9763f";
+  // 缝底先垫深色：板缝里是阴影，不是透出来的海蓝
+  ctx.fillStyle = WOOD.end;
   ctx.fillRect(inset, inset, size, size);
 
-  // 木纹方向逐格交错：拼出来的筏面才不像一张平铺贴图
   const across = (c.gx + c.gy) % 2 === 0;
-  ctx.strokeStyle = "rgba(74, 44, 20, 0.5)";
-  ctx.lineWidth = 1.4;
-  for (let i = 1; i < 4; i++) {
-    const at = (TILE * i) / 4;
-    ctx.beginPath();
-    if (across) {
-      ctx.moveTo(inset + 1, at);
-      ctx.lineTo(TILE - inset - 1, at);
-    } else {
-      ctx.moveTo(at, inset + 1);
-      ctx.lineTo(at, TILE - inset - 1);
+  const planks = 4;
+  const gap = 1.15;
+  const span = size;
+  const plankW = (span - gap * (planks - 1)) / planks;
+
+  for (let i = 0; i < planks; i++) {
+    const tone = hash01(seed + i * 2.17);
+    const body = tone < 0.28 ? WOOD.light : tone < 0.72 ? WOOD.mid : WOOD.dark;
+    const x = across ? inset : inset + i * (plankW + gap);
+    const y = across ? inset + i * (plankW + gap) : inset;
+    const w = across ? span : plankW;
+    const h = across ? plankW : span;
+
+    ctx.fillStyle = body;
+    ctx.fillRect(x, y, w, h);
+
+    // 木纹顺着切割方向走，每条板自己的疏密，破掉「平铺贴图」
+    ctx.strokeStyle = withAlpha(WOOD.end, 0.28 + tone * 0.18);
+    ctx.lineWidth = 0.85;
+    const grains = 2 + Math.floor(hash01(seed + i * 9) * 2);
+    for (let g = 1; g <= grains; g++) {
+      const t = g / (grains + 1);
+      const wob = (hash01(seed + i * 11 + g) - 0.5) * 1.6;
+      ctx.beginPath();
+      if (across) {
+        const yy = y + h * t + wob;
+        ctx.moveTo(x + 2, yy);
+        ctx.lineTo(x + w - 2, yy + (hash01(seed + g) - 0.5) * 1.2);
+      } else {
+        const xx = x + w * t + wob;
+        ctx.moveTo(xx, y + 2);
+        ctx.lineTo(xx + (hash01(seed + g) - 0.5) * 1.2, y + h - 2);
+      }
+      ctx.stroke();
     }
-    ctx.stroke();
+
+    // 断面：木头被锯开的那一头更深、更哑
+    ctx.fillStyle = WOOD.end;
+    if (across) {
+      ctx.fillRect(x, y, 2.2, h);
+      ctx.fillRect(x + w - 2.2, y, 2.2, h);
+    } else {
+      ctx.fillRect(x, y, w, 2.2);
+      ctx.fillRect(x, y + h - 2.2, w, 2.2);
+    }
+
+    // 被踩过的中央更暗更滑：使用痕迹，不是随机脏
+    ctx.fillStyle = withAlpha(WOOD.wet, 0.18);
+    if (across) ctx.fillRect(x + w * 0.28, y + 1, w * 0.44, h - 2);
+    else ctx.fillRect(x + 1, y + h * 0.28, w - 2, h * 0.44);
+
+    // 钉头：只钉在板端，回答「谁把它钉住的」
+    ctx.fillStyle = "#7a848c";
+    const nails = across
+      ? [
+          [x + 5, y + h * 0.5],
+          [x + w - 5, y + h * 0.5],
+        ]
+      : [
+          [x + w * 0.5, y + 5],
+          [x + w * 0.5, y + h - 5],
+        ];
+    for (const [nx, ny] of nails) {
+      ctx.beginPath();
+      ctx.arc(nx, ny, 1.15, 0, Math.PI * 2);
+      ctx.fill();
+    }
   }
 
-  ctx.fillStyle = "rgba(255, 226, 178, 0.2)";
-  ctx.fillRect(inset, inset, size, 2.5);
-  ctx.fillStyle = "rgba(28, 16, 6, 0.3)";
-  ctx.fillRect(inset, TILE - inset - 3, size, 3);
+  // 左上主光、右下接触阴影：整格一块受光，筏才有厚度
+  const key = ctx.createLinearGradient(inset, inset, TILE - inset, TILE - inset);
+  key.addColorStop(0, "rgba(236, 220, 184, 0.16)");
+  key.addColorStop(0.45, "rgba(236, 220, 184, 0)");
+  key.addColorStop(1, "rgba(18, 10, 6, 0.28)");
+  ctx.fillStyle = key;
+  ctx.fillRect(inset, inset, size, size);
+
+  // 边角倒角：硬边塑料感的克星
+  ctx.strokeStyle = "rgba(236, 220, 184, 0.22)";
+  ctx.lineWidth = 1.2;
+  ctx.beginPath();
+  ctx.moveTo(inset + 1, TILE - inset - 3);
+  ctx.lineTo(inset + 1, inset + 1);
+  ctx.lineTo(TILE - inset - 3, inset + 1);
+  ctx.stroke();
+  ctx.strokeStyle = "rgba(20, 10, 6, 0.4)";
+  ctx.beginPath();
+  ctx.moveTo(TILE - inset - 1, inset + 3);
+  ctx.lineTo(TILE - inset - 1, TILE - inset - 1);
+  ctx.lineTo(inset + 3, TILE - inset - 1);
+  ctx.stroke();
 
   const max = maxHpOf(c);
   const wear = 1 - clamp01((c.hp ?? max) / max);
@@ -244,7 +327,6 @@ function drawDeck(ctx: CanvasRenderingContext2D, c: RaftCellView, view: RaftView
         ctx.lineTo(x0 + lean * 0.3 + dx, y0 + 12 + dy);
         ctx.stroke();
       };
-      // 裂纹画两遍：暗的一遍是缝，错开一像素的亮线是被撬起来的木茬
       ctx.strokeStyle = `rgba(28, 12, 4, ${0.35 + wear * 0.45})`;
       ctx.lineWidth = 1.6;
       crack(0, 0);
@@ -305,8 +387,8 @@ function drawCellEdges(
       continue;
     }
 
-    // 临水：一条浮木沿 + 一条会呼吸的白沫
-    ctx.strokeStyle = "#7d5327";
+    // 临水：湿透的浮木沿（颜色比甲板更深）+ 一条会呼吸的白沫
+    ctx.strokeStyle = WOOD.wet;
     ctx.lineWidth = 3.5;
     ctx.beginPath();
     ctx.moveTo(ax, ay);
@@ -357,6 +439,14 @@ function drawStructure(
   ctx.scale(0.5 + grow * 0.5, 0.5 + grow * 0.5);
   ctx.globalAlpha = 0.35 + grow * 0.65;
   if (c.off) ctx.globalAlpha *= 0.55;
+  // 结构脚下的接触阴影：没有它，房子就是贴在甲板上的贴纸
+  ctx.save();
+  ctx.globalAlpha *= 0.28;
+  ctx.fillStyle = "#0a1216";
+  ctx.beginPath();
+  ctx.ellipse(2, 6, 18, 10, 0.12, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
 
   switch (c.id) {
     case "core":
@@ -431,8 +521,8 @@ function drawCore(ctx: CanvasRenderingContext2D, view: RaftView): void {
   ctx.strokeRect(-ridge, -ridge, ridge * 2, ridge * 2);
   ctx.stroke();
 
-  // 中间的天窗：夜里就是全筏最亮的一点
-  const glow = 0.55 + Math.abs(Math.sin(view.time * 1.1)) * 0.4;
+  // 天窗：唯一允许发光的结构件——有人住。呼吸很浅，不是灯泡
+  const glow = 0.38 + Math.abs(Math.sin(view.time * 0.9)) * 0.16;
   ctx.fillStyle = withAlpha(STRUCTURE_TINT.core, glow);
   ctx.fillRect(-ridge + 2, -ridge + 2, ridge * 2 - 4, ridge * 2 - 4);
   ctx.strokeStyle = "rgba(40,24,10,0.7)";

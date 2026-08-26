@@ -157,20 +157,23 @@ export type HudInfo = {
   questDone?: { name: string; reward?: string };
 };
 
-/** HUD 专用色板：暖阳 + 潟湖青，危险色也偏珊瑚而非血红（末世但不丧）。 */
+/**
+ * HUD 色板：磨砂暗玻璃 + 克制信息色。
+ * 饱和度只留给数字/进度/危险——面板本身是死的，不许跟海面抢。
+ */
 export const HUD_COLORS = {
-  panel: "rgba(7, 36, 48, 0.72)",
-  panelLine: "rgba(255, 255, 255, 0.14)",
-  ink: "#f7fbf3",
-  sun: "#ffce54",
-  accent: "#3be0c8",
-  danger: "#ff8a5c",
-  water: "#5ac8ff",
-  food: "#8fe388",
-  wood: "#d29a5b",
-  plastic: "#7fd7f0",
-  metal: "#c2cdd8",
-  rope: "#e6c07a",
+  panel: "rgba(16, 20, 26, 0.82)",
+  panelLine: "rgba(210, 196, 150, 0.16)",
+  ink: "#ece8e0",
+  sun: "#d4b45a",
+  accent: "#4aa89c",
+  danger: "#d47858",
+  water: "#5a9eb0",
+  food: "#7aaa62",
+  wood: "#b08a54",
+  plastic: "#6aa8b4",
+  metal: "#a8b0b8",
+  rope: "#c4a46a",
 } as const;
 
 const RESOURCE_ORDER: readonly ResourceKind[] = ["wood", "plastic", "metal", "rope"];
@@ -1310,8 +1313,15 @@ function drawBuildIcon(ctx: CanvasRenderingContext2D, slot: BuildSlot, cx: numbe
 
 // ---- 基础件 ----
 
-/** 圆角卡片底 + 细描边：HUD 所有面板的统一底座。 */
+/**
+ * 磨砂暗玻璃面板：接触阴影 + 本体 + 1px 上沿高光。
+ * 不用纯白描边、不用斜杠高光、不用双色廉价渐变。
+ */
 function panel(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number): void {
+  ctx.save();
+  ctx.fillStyle = "rgba(0, 0, 0, 0.28)";
+  roundRect(ctx, x, y + 2, w, h, 12);
+  ctx.fill();
   ctx.fillStyle = HUD_COLORS.panel;
   roundRect(ctx, x, y, w, h, 12);
   ctx.fill();
@@ -1319,6 +1329,13 @@ function panel(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h
   ctx.lineWidth = 1;
   roundRect(ctx, x, y, w, h, 12);
   ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(x + 12, y + 1);
+  ctx.lineTo(x + w - 12, y + 1);
+  ctx.strokeStyle = "rgba(236, 228, 208, 0.14)";
+  ctx.lineWidth = 1;
+  ctx.stroke();
+  ctx.restore();
 }
 
 /** 文本宽度估算（CJK ≈ 全宽、其余 ≈ 0.55 宽）：不依赖 measureText，stub ctx 也能跑。 */
