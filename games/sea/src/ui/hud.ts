@@ -1,7 +1,7 @@
 import { CANVAS } from "../data/constants";
 
 /**
- * HUD 绘制 API（fable-sota，Round 3）。
+ * HUD 绘制 API（fable-sota，Round 4）。
  *
  * 设计基调：手游浮岛基建的轻松感——末世但不丧。圆角卡片、暖阳黄点缀、
  * 资源 +1 弹跳、换天徽章闪光；绝不用血红大警报吓玩家（危险态只做柔和脉冲）。
@@ -11,12 +11,15 @@ import { CANVAS } from "../data/constants";
  * - session 每帧在世界绘制之后调用 drawHud(ctx, info)；info 里除 day 外全部
  *   可选，缺哪块就不画哪块，父调度器可以分阶段接线。
  *   Round 2 新增 storm01 / starve01 / hintDanger 三个可选预警字段，
- *   Round 3 新增 placeHint（放置被拒短句）：session 还没传时行为与上一轮
- *   完全一致，不崩不闪。
+ *   Round 3 新增 placeHint（放置被拒短句），
+ *   Round 4 新增 storyBeat / quest / lootToast（轻剧情 / 岛民请求 / 拾取提示）：
+ *   session 还没传时行为与上一轮**逐像素一致**，不崩不闪。
  * - 布局红线：资源/生存条贴左上，天数贴右上，建造栏贴底部中央；
- *   预警层贴顶缘（y < 96，浮岛网格上沿之上）——
+ *   预警层贴顶缘（y < 96，浮岛网格上沿之上）；剧情层贴左右两列与左下角
+ *   （拾取提示接生存条下、任务胶囊接岛民胶囊下、日记卡压左下角）——
  *   画面中央（浮岛与小船的舞台）永不遮挡。
- * - 模块在 Node 可安全 import（单测环境无 matchMedia/DOM，已守卫）。
+ * - 模块在 Node 可安全 import（单测环境无 matchMedia/DOM，已守卫；
+ *   文本宽度全部走 estTextWidth 估算，stub ctx 没有 measureText 也安全）。
  */
 
 /** 四种拾荒材料（GAME_SPEC §2；键名与 constants.ResourceId 的建材子集对齐）。 */
@@ -81,6 +84,30 @@ export type HudInfo = {
    * 缺省不画、提示行行为不变。拒绝后传几秒再撤由 session 掌握。
    */
   placeHint?: string;
+  /**
+   * 轻剧情节拍（Round 4）：航海日记 / 无线电广播的一小段。
+   * 画在左下角的「日记卡」（操作提示行上方，卡宽 ≤288 不碰建造栏）：
+   * 暖阳色标题 + 正文自动换行（最多 3 行，超出省略号）。
+   * title+body 变化瞬间整卡淡入上浮 0.35s（reduced-motion 下瞬现）。
+   * 缺省不画。显示几秒、何时换下一拍由 session 掌握（建议 6–10 秒一拍）。
+   */
+  storyBeat?: { title: string; body: string };
+  /**
+   * 岛民请求 / 当前任务（Round 4）。画在右上岛民胶囊下方的「任务胶囊」：
+   * 潟湖青小旗 + 任务名 + 进度短文案（如「木板 3/5」）。
+   * name 变化 = 新任务，整胶囊淡入；progress 变化 = 有进展，进度行轻弹
+   *（复用资源 pop 曲线）。缺省不画。完成后建议 session 把 progress 换成
+   * 「完成！」再传 1–2 秒，然后撤掉或换下一条。
+   */
+  quest?: { name: string; progress: string };
+  /**
+   * 拾取轻提示（Round 4）：刚捞到的物品名 + 数量。
+   * 画在左上生存条正下方的小胶囊：暖阳四角星 + 名称 + ×数量，
+   * 出现瞬间弹跳（同资源 pop 曲线）+ 0.2s 淡入。缺省不画。
+   * 撤掉时机由 session 掌握（建议 1.5–2.5 秒）；同名连续拾取建议把 qty
+   * 累计上去——name×qty 组合变化就会重新弹跳。
+   */
+  lootToast?: { name: string; qty: number };
 };
 
 /** HUD 专用色板：暖阳 + 潟湖青，危险色也偏珊瑚而非血红（末世但不丧）。 */
@@ -123,6 +150,14 @@ let lastDangerHint = "";
 let dangerHintAt = -Infinity;
 let lastPlaceHint = "";
 let placeHintAt = -Infinity;
+let lastStoryKey = "";
+let storyAt = -Infinity;
+let lastQuestName = "";
+let questAt = -Infinity;
+let lastQuestProgress = "";
+let questProgressAt = -Infinity;
+let lastLootKey = "";
+let lootAt = -Infinity;
 
 /** 清空 HUD 动画状态。新一局开始时调用，避免上一局尾帧的弹跳串进新局。幂等。 */
 export function resetHud(): void {
@@ -134,10 +169,19 @@ export function resetHud(): void {
   dangerHintAt = -Infinity;
   lastPlaceHint = "";
   placeHintAt = -Infinity;
+  lastStoryKey = "";
+  storyAt = -Infinity;
+  lastQuestName = "";
+  questAt = -Infinity;
+  lastQuestProgress = "";
+  questProgressAt = -Infinity;
+  lastLootKey = "";
+  lootAt = -Infinity;
 }
 
 /**
- * 变化侦测：资源增加 / 换天时记录弹跳时间戳，危险/放置提示文案变化时记录入场时间戳。
+ * 变化侦测：资源增加 / 换天时记录弹跳时间戳；危险/放置提示、剧情节拍、
+ * 任务（名与进度分开侦测）、拾取提示的内容变化时记录入场时间戳。
  * 只在值变化时写状态，同一帧内被多个绘制函数重复调用是无害的。
  * day 回退（一局内单调递增）视为新开一局，自动清一次——未接 resetHud 也不串场。
  */
@@ -151,6 +195,18 @@ function syncHudState(info: HudInfo, now: number): void {
   const denial = info.placeHint ?? "";
   if (denial && denial !== lastPlaceHint) placeHintAt = now;
   lastPlaceHint = denial;
+  const story = info.storyBeat ? `${info.storyBeat.title}\n${info.storyBeat.body}` : "";
+  if (story && story !== lastStoryKey) storyAt = now;
+  lastStoryKey = story;
+  const questName = info.quest?.name ?? "";
+  if (questName && questName !== lastQuestName) questAt = now;
+  lastQuestName = questName;
+  const questProgress = info.quest ? `${info.quest.name}\n${info.quest.progress}` : "";
+  if (questProgress && questProgress !== lastQuestProgress) questProgressAt = now;
+  lastQuestProgress = questProgress;
+  const loot = info.lootToast ? `${info.lootToast.name}×${info.lootToast.qty}` : "";
+  if (loot && loot !== lastLootKey) lootAt = now;
+  lastLootKey = loot;
   if (!info.resources) return;
   for (const kind of RESOURCE_ORDER) {
     const v = info.resources[kind];
@@ -168,7 +224,7 @@ function popScale(at: number | undefined, now: number): number {
   return 1 + 0.4 * (1 - t) * (1 - t);
 }
 
-/** 一次画全 HUD：预警层 + 资源条 + 天数徽章 + 建造快捷栏。session 每帧调用这个即可。 */
+/** 一次画全 HUD：预警层 + 资源条 + 天数徽章 + 建造快捷栏 + 剧情层。session 每帧调用这个即可。 */
 export function drawHud(ctx: CanvasRenderingContext2D, info: HudInfo): void {
   const now = info.time ?? performance.now() / 1000;
   syncHudState(info, now);
@@ -177,6 +233,7 @@ export function drawHud(ctx: CanvasRenderingContext2D, info: HudInfo): void {
   drawResourceBar(ctx, info);
   drawDayBadge(ctx, info);
   drawBuildBar(ctx, info);
+  drawStoryLayer(ctx, info); // 最后画：日记卡/任务胶囊/拾取提示叠在各面板之上
   ctx.restore();
 }
 
@@ -527,6 +584,104 @@ export function drawBuildBar(ctx: CanvasRenderingContext2D, info: HudInfo): void
   ctx.restore();
 }
 
+/**
+ * 剧情层（Round 4；三个字段都没接线时不画任何东西，逐像素与 Round 3 一致）：
+ * - lootToast：左上生存条正下方小胶囊（暖阳四角星 + 名称 + ×数量），
+ *   出现瞬间弹跳（资源 pop 同曲线）+ 0.2s 淡入。
+ * - quest：右上岛民胶囊下方任务胶囊（潟湖青小旗 + 任务名 + 进度行）；
+ *   新任务整胶囊淡入，进度变化瞬间进度行轻弹——「有进展」的确认感。
+ * - storyBeat：左下角日记/广播卡（电波图标 + 暖阳标题 + 正文 ≤3 行自动换行），
+ *   节拍变化时淡入上浮 0.35s。卡宽 288 < 建造栏左缘 325，互不相撞。
+ * 三块全部贴边（左列 154–184 / 右列 124–170 / 左下角压底），中央舞台零遮挡；
+ * reduced-motion 下全部瞬现、无弹跳。文本宽度全走 estTextWidth，超长自动省略号。
+ */
+export function drawStoryLayer(ctx: CanvasRenderingContext2D, info: HudInfo): void {
+  const now = info.time ?? performance.now() / 1000;
+  syncHudState(info, now);
+  if (!info.storyBeat && !info.quest && !info.lootToast) return;
+  const FONT = "'Trebuchet MS', 'PingFang SC', 'Microsoft YaHei', sans-serif";
+  ctx.save();
+
+  // 拾取轻提示：左上生存条（y 76–146）正下方
+  if (info.lootToast) {
+    const name = wrapText(info.lootToast.name, 13, 160, 1)[0] ?? "";
+    const qtyText = `×${Math.max(1, Math.floor(info.lootToast.qty))}`;
+    const nameW = estTextWidth(name, 13);
+    const w = 34 + nameW + 6 + estTextWidth(qtyText, 13) + 14;
+    const h = 30;
+    const fadeIn = REDUCED_MOTION ? 1 : Math.max(0, Math.min(1, (now - lootAt) / 0.2));
+    const scale = REDUCED_MOTION ? 1 : popScale(lootAt, now);
+    ctx.save();
+    ctx.globalAlpha = fadeIn;
+    ctx.translate(16 + w / 2, 154 + h / 2);
+    ctx.scale(scale, scale);
+    panel(ctx, -w / 2, -h / 2, w, h);
+    drawSparkIcon(ctx, -w / 2 + 20, 0, 7, HUD_COLORS.sun);
+    ctx.fillStyle = HUD_COLORS.ink;
+    ctx.font = `700 13px ${FONT}`;
+    ctx.textAlign = "left";
+    ctx.fillText(name, -w / 2 + 34, 5);
+    ctx.fillStyle = HUD_COLORS.sun;
+    ctx.fillText(qtyText, -w / 2 + 34 + nameW + 6, 5);
+    ctx.restore();
+  }
+
+  // 任务胶囊：右上岛民胶囊（y 66–96）与饿态提示行（~116）之下，贴右缘
+  if (info.quest) {
+    const name = wrapText(info.quest.name, 13, 208, 1)[0] ?? "";
+    const progress = wrapText(info.quest.progress, 12, 208, 1)[0] ?? "";
+    const w = Math.max(120, 42 + Math.max(estTextWidth(name, 13), estTextWidth(progress, 12)));
+    const h = 46;
+    const x0 = CANVAS.w - 16 - w;
+    const y0 = 124;
+    const fadeIn = REDUCED_MOTION ? 1 : Math.max(0, Math.min(1, (now - questAt) / 0.25));
+    ctx.save();
+    ctx.globalAlpha = fadeIn;
+    panel(ctx, x0, y0, w, h);
+    drawFlagIcon(ctx, x0 + 18, y0 + 15, HUD_COLORS.accent);
+    ctx.fillStyle = HUD_COLORS.ink;
+    ctx.font = `700 13px ${FONT}`;
+    ctx.textAlign = "left";
+    ctx.fillText(name, x0 + 30, y0 + 19);
+    const scale = REDUCED_MOTION ? 1 : popScale(questProgressAt, now);
+    ctx.translate(x0 + 30, y0 + 36);
+    ctx.scale(scale, scale);
+    ctx.fillStyle = HUD_COLORS.accent;
+    ctx.font = `700 12px ${FONT}`;
+    ctx.fillText(progress, 0, 0);
+    ctx.restore();
+  }
+
+  // 日记/广播卡：左下角，底边锚在操作提示行（基线 CANVAS.h-20）上方
+  if (info.storyBeat) {
+    const w = 288;
+    const pad = 12;
+    const title = wrapText(info.storyBeat.title, 13, w - pad * 2 - 20, 1)[0] ?? "";
+    const lines = wrapText(info.storyBeat.body, 12, w - pad * 2, 3);
+    const h = lines.length > 0 ? 56 + (lines.length - 1) * 17 : 36;
+    const t = REDUCED_MOTION ? 1 : Math.max(0, Math.min(1, (now - storyAt) / 0.35));
+    const rise = (1 - t) * (1 - t) * 8; // 入场从 8px 低处 ease-out 上浮
+    const x0 = 16;
+    const y0 = CANVAS.h - 44 - h + rise;
+    ctx.save();
+    ctx.globalAlpha = t;
+    panel(ctx, x0, y0, w, h);
+    drawRadioIcon(ctx, x0 + pad + 6, y0 + 19, HUD_COLORS.sun);
+    ctx.fillStyle = HUD_COLORS.sun;
+    ctx.font = `700 13px ${FONT}`;
+    ctx.textAlign = "left";
+    ctx.fillText(title, x0 + pad + 20, y0 + 24);
+    ctx.fillStyle = withAlpha(HUD_COLORS.ink, 0.88);
+    ctx.font = `12px ${FONT}`;
+    lines.forEach((line, i) => {
+      ctx.fillText(line, x0 + pad, y0 + 44 + i * 17);
+    });
+    ctx.restore();
+  }
+
+  ctx.restore();
+}
+
 // ---- 图标（全部程序化绘制，零素材）----
 
 function drawResourceIcon(
@@ -570,6 +725,71 @@ function drawResourceIcon(
     ctx.beginPath();
     ctx.moveTo(cx + r * 0.62, cy + r * 0.28);
     ctx.lineTo(cx + r * 1.05, cy + r * 0.6);
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+/** 四角星小图标（拾取提示用）：捞到东西的「叮」一下，暖阳色。 */
+function drawSparkIcon(
+  ctx: CanvasRenderingContext2D,
+  cx: number,
+  cy: number,
+  r: number,
+  color: string,
+): void {
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.moveTo(cx, cy - r);
+  ctx.quadraticCurveTo(cx + r * 0.22, cy - r * 0.22, cx + r, cy);
+  ctx.quadraticCurveTo(cx + r * 0.22, cy + r * 0.22, cx, cy + r);
+  ctx.quadraticCurveTo(cx - r * 0.22, cy + r * 0.22, cx - r, cy);
+  ctx.quadraticCurveTo(cx - r * 0.22, cy - r * 0.22, cx, cy - r);
+  ctx.closePath();
+  ctx.fill();
+}
+
+/** 小旗图标（任务胶囊用）：旗杆 + 三角旗，潟湖青。 */
+function drawFlagIcon(
+  ctx: CanvasRenderingContext2D,
+  cx: number,
+  cy: number,
+  color: string,
+): void {
+  ctx.save();
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(cx - 4, cy - 7);
+  ctx.lineTo(cx - 4, cy + 8);
+  ctx.stroke();
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.moveTo(cx - 4, cy - 7);
+  ctx.lineTo(cx + 7, cy - 3.5);
+  ctx.lineTo(cx - 4, cy);
+  ctx.closePath();
+  ctx.fill();
+  ctx.restore();
+}
+
+/** 电波图标（日记/广播卡用）：信号点 + 两道右扩弧，暖阳色。 */
+function drawRadioIcon(
+  ctx: CanvasRenderingContext2D,
+  cx: number,
+  cy: number,
+  color: string,
+): void {
+  ctx.save();
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.arc(cx, cy, 2.4, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 1.6;
+  for (const r of [5.5, 9] as const) {
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, -0.62, 0.62);
     ctx.stroke();
   }
   ctx.restore();
@@ -708,6 +928,37 @@ function estTextWidth(text: string, px: number): number {
   let w = 0;
   for (const ch of text) w += ch.charCodeAt(0) > 0xff ? px : px * 0.55;
   return w;
+}
+
+/**
+ * 按 estTextWidth 逐字换行（中文文案为主，无断词需求）；
+ * 超过 maxLines 行时截断、末行收省略号。maxLines=1 即单行截断。
+ */
+function wrapText(text: string, px: number, maxW: number, maxLines: number): string[] {
+  const lines: string[] = [];
+  let line = "";
+  let w = 0;
+  let clipped = false;
+  for (const ch of text) {
+    const cw = ch.charCodeAt(0) > 0xff ? px : px * 0.55;
+    if (w + cw > maxW && line) {
+      if (lines.length + 1 >= maxLines) {
+        clipped = true;
+        break;
+      }
+      lines.push(line);
+      line = "";
+      w = 0;
+    }
+    if (line === "" && ch === " ") continue; // 换行后的行首空格丢弃
+    line += ch;
+    w += cw;
+  }
+  if (line) lines.push(line);
+  if (clipped && lines.length > 0) {
+    lines[lines.length - 1] = lines[lines.length - 1].replace(/.$/u, "…");
+  }
+  return lines;
 }
 
 function withAlpha(hex: string, a: number): string {

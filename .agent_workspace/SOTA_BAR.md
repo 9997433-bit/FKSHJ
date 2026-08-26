@@ -130,6 +130,46 @@ session 已把 storm01 / starve01 / hintDanger 全部接上（src/session.ts dra
 - 继承 Round 2 未动清单：海盗方向预告（屏幕边缘方向雾/箭头）、建造栏鼠标点选
   `hitTestBuildBar`、结算数字滚动 / 新纪录彩带、岛民表情。
 
+## 2.7 Round 4 增量（fable-sota · 新波次 R1：物品 / 轻剧情 / 岛民请求 UI 契约）
+
+对照浮岛基建手游：这类游戏的「剧情」从来不是过场动画，是角落里一张会说话的
+小卡片——NPC 眨个眼提个需求、捞到东西「叮」一下、广播里飘一句闲话。本轮把
+这三张小卡片的 UI 契约立起来（全部可选字段，session 未传时**逐像素一致**）。
+
+**本轮加了什么（hud.ts；menus API 未动一字）：**
+
+- `HudInfo` 新增三个全可选字段 + 新导出 `drawStoryLayer(ctx, info)`
+  （drawHud 内最后画、叠在各面板之上；也可单独调用，stub ctx 安全）：
+  - `lootToast?: { name; qty }` — 拾取轻提示：左上生存条正下方小胶囊
+    （暖阳四角星 + 名称 + ×数量），出现瞬间弹跳（资源 pop 同曲线）+ 0.2s
+    淡入。name×qty 组合变化即重新弹跳——同名连续拾取把 qty 累计上去就有
+    「+1 +2 +3」的连击感。
+  - `quest?: { name; progress }` — 岛民请求胶囊：右上岛民胶囊下方
+    （潟湖青小旗 + 任务名 + 进度行）。新任务整胶囊淡入；progress 变化瞬间
+    进度行轻弹——手游任务栏「有进展」的确认感。
+  - `storyBeat?: { title; body }` — 日记/广播卡：左下角压底（电波图标 +
+    暖阳标题 + 正文自动换行 ≤3 行），节拍变化时淡入上浮 0.35s。末世但不丧
+    的文案主阵地：广播里聊天气、老周惦记他的钓竿。
+- 布局红线复核：三块全部贴边（左列 y 154–184 / 右列 y 124–170 / 左下角
+  卡宽 288 < 建造栏左缘 325），中央舞台零遮挡；与既有资源条 / 天数徽章 /
+  预警层 / 建造栏互不重叠（含岛民饿态提示行 ~y116 之下 8px 起）。
+- 超长文案安全：新增 `wrapText` 逐字换行 + 省略号（单行截断 = maxLines 1），
+  与 estTextWidth 同源、不依赖 measureText——任务名 / 物品名 / 正文再长
+  也不会撑出胶囊或碰到舞台。
+- 三块的入场时间戳全进 `resetHud` 与 day 回退自愈；`prefers-reduced-motion`
+  下瞬现、无弹跳无上浮。现有资源条 / 生存条 / 预警层未动一行。
+
+**还缺什么（给下轮 / 父调度器）：**
+
+- **数据源全欠**：sim 目前没有任务/剧情系统。lootToast 最快落地——session
+  在捞取入账处存 `{ name, qty, at }` 传 2 秒即可（见 §5）；storyBeat 可先做
+  session 侧硬编码节拍表（按天数/事件触发）；quest 等 sim 长出请求状态。
+- 任务完成瞬间没有专门庆祝动画：约定是把 progress 换成「完成！」传 1–2 秒
+  （进度行会弹一下），但没有勾勾图标 / 小彩带——差手游「叮 + 领奖」半步。
+- 日记卡无队列：同一时刻只显示一拍，连发节拍会互相顶掉重新淡入；
+  拾取提示单条不堆叠，连续捞多种材料只显示最新一条。节奏由 session 控。
+- 岛民请求胶囊里只有小旗没有头像/表情，与 P2「岛民表情」一起做。
+
 ## 3. 本轮必做（fable-sota 写集：SOTA_BAR / src/ui/** / index.css）
 
 - [x] **P0 `src/ui/menus.ts`**：title / paused / gameover 三面板，中文；标题「疯狂水世界」+
@@ -189,6 +229,23 @@ drawHud(ctx, {
   // ---- Round 3 新增（可选；不传不画）----
   // tryPlaceAt 的拒绝分支先存：this.denied = { text: placeHint(check.reason), at: this.time };
   placeHint: this.denied && this.time - this.denied.at < 2.5 ? this.denied.text : undefined,
+  // ---- Round 4 新增（可选；不传不画，逐像素与 Round 3 一致）----
+  // 拾取提示：捞取入账处存 this.loot = { name: "木板", qty: 1, at: this.time }；
+  // 同名 2 秒内再捞就 qty++ 并刷新 at——名×量变化会重新弹跳，自带连击感。
+  lootToast:
+    this.loot && this.time - this.loot.at < 2
+      ? { name: this.loot.name, qty: this.loot.qty }
+      : undefined,
+  // 岛民请求：等 sim 长出请求状态后折算成两句短文案（超长会自动省略号）。
+  quest: this.quest
+    ? { name: "老周想要木板", progress: "木板 3/5" } // 完成后把 progress 换成「完成！」传 1–2 秒再撤
+    : undefined,
+  // 轻剧情：session 存节拍表（按天数/事件触发），到点传 6–10 秒；
+  // title+body 变化即重新淡入上浮，别逐帧换字符串。
+  storyBeat:
+    this.beat && this.time - this.beat.at < 8
+      ? { title: "无线电 · 第 3 天", body: "北边渔场的老赵说，最近漂来的木箱成色不错，手快有手慢无。" }
+      : undefined,
 });
 // HUD 的饿态阈值 >0.4 与 economy 的 STARVE.warnAt = 0.4 对齐，无需换算。
 // placeHint 的文案用 sim/rules 现成的 placeHint(reason)，撤掉时机由 session 掌握
@@ -215,7 +272,9 @@ renderOverlay(overlay, "gameover", {
   `resetHud()`、`drawHud(ctx, info)`、`drawResourceBar(ctx, info)`、
   `drawDayBadge(ctx, info)`、`drawBuildBar(ctx, info)`、
   `drawAlerts(ctx, info)`（Round 2：storm01 / hintDanger 预警层；
-  Round 3：`HudInfo.placeHint?` 放置被拒短句，画在建造栏提示行）。
+  Round 3：`HudInfo.placeHint?` 放置被拒短句，画在建造栏提示行）、
+  `drawStoryLayer(ctx, info)`（Round 4：`storyBeat?` / `quest?` / `lootToast?`
+  剧情层三件，三字段都缺省时不触碰 ctx）。
 - `gameoverCopy` 纯函数可直接断言；hud/menus 模块 import 无副作用（Node 安全）。
 
 ## 6. 验收 rubric（Round 1 结束时逐项打勾）
