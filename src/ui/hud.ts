@@ -18,7 +18,7 @@ const POP_MS = 0.35;
 // HUD 动画状态（单实例即可）：连击弹跳、掉血脉冲
 let lastCombo = 0;
 let comboPopAt = -Infinity;
-let lastHp = PLAYER.maxHp;
+let lastHp: number = PLAYER.maxHp;
 let hpPulseAt = -Infinity;
 
 export function drawHud(ctx: CanvasRenderingContext2D, info: HudInfo): void {
