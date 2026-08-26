@@ -16,11 +16,19 @@ const input = createInput(canvas);
 const sfx = new Sfx();
 let session = new Session(sfx);
 
+function audioControl() {
+  return {
+    muted: sfx.isMuted(),
+    onToggle: () => sfx.toggleMute(),
+  };
+}
+
 function showTitle(): void {
   engine.scene = "title";
   renderOverlay(overlay, "title", {
     hiScore: Session.hiScore(),
     onStart: startRun,
+    audio: audioControl(),
   });
 }
 
@@ -40,6 +48,7 @@ function pause(): void {
       renderOverlay(overlay, "hidden", { hiScore: Session.hiScore() });
     },
     onTitle: showTitle,
+    audio: audioControl(),
   });
 }
 
@@ -54,6 +63,7 @@ function finish(): void {
     isNew: r.isNew,
     onRetry: startRun,
     onTitle: showTitle,
+    audio: audioControl(),
   });
 }
 
