@@ -11,6 +11,13 @@ describe("levels", () => {
     assert.deepEqual(a.pickups[0], b.pickups[0]);
   });
 
+  it("generates different worlds for different seeds", () => {
+    const a = generateWorld(7);
+    const b = generateWorld(8);
+
+    assert.notDeepEqual(a, b);
+  });
+
   it("themeIndex clamps", () => {
     assert.equal(themeIndex(0), 0);
     assert.equal(themeIndex(499), 0);
