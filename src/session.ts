@@ -166,7 +166,7 @@ export class Session {
       else this.tryPlaceAt(click.x, click.y);
     }
 
-    updateJunk(this.junk, dt, { storm01: stormWarnRatio(this.threats) });
+    updateJunk(this.junk, dt);
     const eco = updateEconomy(this.economy, this.raft, this.res, dt);
     const events = updateThreats(this.threats, this.raft, this.res, dt, this.rng);
 
