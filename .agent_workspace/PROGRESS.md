@@ -43,4 +43,4 @@
 | opus-content | cloud | `bc-2ce5cda9-7350-5957-9a67-eaea45bfbec1` | 运行中 |
 | opus-core | local | `bc-f33f8ea2-5c35-50b7-9683-9baff7d16890` | 运行中 |
 | gpt-test | local | `bc-85d38b55-2e52-5bdc-b07f-833077a49cce` | 已完成（18 测已收编） |
-| gpt-probe | local | `bc-dc2e5c29-59d2-5a8c-81db-9e1a8e89959d` | 运行中 |
+| gpt-probe | local | `bc-dc2e5c29-59d2-5a8c-81db-9e1a8e89959d` | 已完成（长局空关卡已记录，脚本已收编） |
