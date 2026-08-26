@@ -39,7 +39,7 @@
 
 | 角色 | 环境 | Agent ID | 状态 |
 | --- | --- | --- | --- |
-| fable-arch | cloud | `bc-15fd94ca-2aab-5d28-b10d-e020f5079b32` | 进行中 |
+| fable-arch | cloud | `bc-15fd94ca-2aab-5d28-b10d-e020f5079b32` | 已完成（constants 对齐 sim，仍待 sim 改 import） |
 | fable-sota | cloud | `bc-b89f8894-bd24-5d85-89e3-ac6fff25db25` | 进行中 |
 | opus-content | cloud | `bc-88106807-a276-5c5d-a0aa-ade423772102` | 进行中 |
 | opus-core | local | `bc-8c47b3ae-d84a-5025-a678-bd7a041b4b7e` | 已交卷（placeHint + 捞取/菜单空格修复） |
