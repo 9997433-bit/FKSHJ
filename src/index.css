@@ -1,10 +1,19 @@
+/*
+ * 疯狂水世界 · 海上末日拾荒建造 — 全局样式（fable-sota，Round 1）。
+ * 基调：手游浮岛基建的轻松感，末世但不丧——深海底色上压暖阳黄与潟湖青，
+ * 主按钮做成阳光木牌感；危险信息一律用珊瑚色，不用血红。
+ * 画布内 HUD（资源条/天数/建造栏）在 src/ui/hud.ts 程序化绘制，
+ * 这里只管 DOM 面板（标题/暂停/结算）与页面骨架。
+ */
+
 :root {
-  --bg: #042833;
-  --panel: rgba(4, 28, 40, 0.78);
-  --ink: #f4fffd;
-  --accent: #2ee6d6;
-  --hot: #ff5dab;
-  --sun: #ffd166;
+  --bg: #06303f;
+  --panel: rgba(7, 38, 52, 0.82);
+  --ink: #f7fbf3;
+  --accent: #3be0c8; /* 潟湖青：链接/描边/次要强调 */
+  --sun: #ffce54; /* 暖阳黄：数字/主强调 */
+  --coral: #ff8a5c; /* 珊瑚：危险但不吓人 */
+  --wood: #d29a5b; /* 木筏棕：材质点缀 */
 }
 
 * {
@@ -19,7 +28,8 @@ body,
   width: 100%;
   height: 100%;
   overflow: hidden;
-  background: radial-gradient(circle at 50% 20%, #0a5c6e 0%, #042833 70%);
+  /* 顶部一抹晨光，往下沉进海里：末世的海，也得是晒得到太阳的海 */
+  background: radial-gradient(circle at 50% 8%, #148599 0%, #0a4a5c 42%, #06303f 78%);
   font-family: "Trebuchet MS", "PingFang SC", "Microsoft YaHei", sans-serif;
   color: var(--ink);
   user-select: none;
@@ -36,9 +46,11 @@ body,
   height: min(100vh, calc(100vw * 9 / 16));
   display: block;
   border-radius: 12px;
-  box-shadow: 0 20px 80px rgba(0, 0, 0, 0.45);
-  background: #01313d;
+  box-shadow: 0 20px 80px rgba(0, 10, 16, 0.5);
+  background: #063a4d;
 }
+
+/* ---------- 菜单浮层 ---------- */
 
 .overlay {
   position: fixed;
@@ -46,20 +58,22 @@ body,
   display: grid;
   place-items: center;
   pointer-events: none;
-  background: radial-gradient(circle at 50% 40%, rgba(2, 20, 28, 0.15) 0%, rgba(2, 14, 20, 0.5) 100%);
+  background: radial-gradient(circle at 50% 40%, rgba(3, 22, 30, 0.12) 0%, rgba(3, 16, 22, 0.5) 100%);
 }
 
 .overlay .panel {
   pointer-events: auto;
   position: relative;
-  width: min(560px, 92vw);
+  width: min(580px, 92vw);
   max-height: 92vh;
   overflow-y: auto;
-  padding: 28px 32px 24px;
-  border-radius: 20px;
+  padding: 30px 34px 24px;
+  border-radius: 22px;
   background: var(--panel);
-  border: 1px solid rgba(46, 230, 214, 0.35);
-  box-shadow: 0 16px 60px rgba(0, 20, 30, 0.45);
+  border: 1px solid rgba(255, 206, 84, 0.28);
+  box-shadow:
+    0 16px 60px rgba(0, 16, 24, 0.5),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
   text-align: center;
   backdrop-filter: blur(10px);
   animation: panel-in 0.26s ease-out both;
@@ -79,13 +93,15 @@ body,
 .overlay h1 {
   font-size: clamp(32px, 6vw, 52px);
   letter-spacing: 0.08em;
-  color: var(--accent);
-  text-shadow: 0 4px 0 #01545a, 0 0 24px rgba(46, 230, 214, 0.55);
+  color: var(--sun);
+  text-shadow:
+    0 4px 0 rgba(107, 60, 10, 0.55),
+    0 0 26px rgba(255, 206, 84, 0.4);
 }
 
 .overlay .tag {
   margin: 8px 0 18px;
-  color: var(--sun);
+  color: var(--accent);
   font-size: 14px;
   letter-spacing: 0.14em;
 }
@@ -136,7 +152,7 @@ body,
   line-height: 1.5;
 }
 
-/* 结算 / 标题统计格 */
+/* 标题 / 结算统计格（存活天数用 .highlight 放大突出） */
 .overlay .stats {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(96px, 1fr));
@@ -166,13 +182,23 @@ body,
   margin-top: 2px;
 }
 
+.overlay .stat.highlight {
+  border-color: rgba(59, 224, 200, 0.45);
+  background: rgba(59, 224, 200, 0.1);
+}
+
+.overlay .stat.highlight .num {
+  color: var(--accent);
+  font-size: 30px;
+}
+
 .overlay .badge-new {
   display: inline-block;
   margin-bottom: 10px;
   padding: 4px 16px;
   border-radius: 999px;
-  background: linear-gradient(90deg, var(--hot), var(--sun));
-  color: #2b0618;
+  background: linear-gradient(90deg, var(--coral), var(--sun));
+  color: #3c1a06;
   font-size: 14px;
   font-weight: 800;
   letter-spacing: 0.12em;
@@ -189,6 +215,8 @@ body,
   }
 }
 
+/* ---------- 按钮 ---------- */
+
 .overlay .btn-row {
   display: flex;
   flex-wrap: wrap;
@@ -204,8 +232,8 @@ body,
   min-width: 132px;
   border: 0;
   border-radius: 999px;
-  background: linear-gradient(180deg, #5ff5e8, #1ec4b6);
-  color: #04343a;
+  background: linear-gradient(180deg, #ffd76a, #ff9f43);
+  color: #55300a;
   font-family: inherit;
   font-weight: 800;
   font-size: 16px;
@@ -218,7 +246,7 @@ body,
 }
 
 .overlay button.primary {
-  box-shadow: 0 6px 22px rgba(46, 230, 214, 0.35);
+  box-shadow: 0 6px 22px rgba(255, 168, 61, 0.4);
 }
 
 .overlay button:hover {
@@ -231,7 +259,7 @@ body,
 }
 
 .overlay button:focus-visible {
-  outline: 3px solid var(--sun);
+  outline: 3px solid var(--accent);
   outline-offset: 3px;
 }
 
@@ -271,10 +299,10 @@ body,
 
 .overlay button.mute[aria-pressed="true"] {
   color: var(--sun);
-  border-color: rgba(255, 209, 102, 0.6);
+  border-color: rgba(255, 206, 84, 0.6);
 }
 
-/* 内联帮助面板（替代 alert） */
+/* 内联玩法说明（替代 alert） */
 .overlay .help-panel {
   margin-top: 14px;
   padding: 14px 16px;
