@@ -1,5 +1,5 @@
 /**
- * DOM 菜单面板（fable-sota，Round 1）：title / paused / gameover，全中文。
+ * DOM 菜单面板（fable-sota，Round 3）：title / paused / gameover，全中文。
  * 基调：末世但不丧——文案带点摸鱼的松弛感，结算永远给「再来一局」的钩子。
  * 面板样式在 src/index.css；session/main 由父调度器接线（见 SOTA_BAR §6）。
  */
@@ -63,6 +63,13 @@ export function gameoverCopy(p: Pick<MenuPayload, "isNew" | "endedBy">): {
 
 /** 上一个菜单挂的全局键盘监听，重渲染 / 隐藏时移除，避免泄漏与重复触发。 */
 let disposeKeys: (() => void) | null = null;
+
+/**
+ * 结算面板落定期（毫秒）：死亡瞬间玩家往往还按着空格（捞取）或在连点海面，
+ * 面板一出焦点就在「再来一局」上，原生 Space/Enter/点击会在看清结算前误触重开。
+ * 这段时间内结算按钮不响应；只挡 gameover——标题/暂停的 Enter 秒响应是刻意的。
+ */
+const GAMEOVER_SETTLE_MS = 350;
 
 function muteLabel(muted: boolean): string {
   return muted ? "音效 关" : "音效 开";
@@ -199,6 +206,10 @@ export function renderOverlay(
   }
 
   const over = gameoverCopy(payload);
+  const openedAt = performance.now();
+  const settled = (fn?: () => void) => () => {
+    if (performance.now() - openedAt >= GAMEOVER_SETTLE_MS) fn?.();
+  };
   root.innerHTML = `
     <div class="panel" role="dialog" aria-label="本局结算">
       ${muteHtml(payload.audio)}
@@ -217,9 +228,9 @@ export function renderOverlay(
       </div>
       <p class="hint">按 <kbd>Enter</kbd> 再来一局</p>
     </div>`;
-  root.querySelector("#btn-retry")?.addEventListener("click", () => payload.onRetry?.());
-  root.querySelector("#btn-title")?.addEventListener("click", () => payload.onTitle?.());
+  root.querySelector("#btn-retry")?.addEventListener("click", settled(payload.onRetry));
+  root.querySelector("#btn-title")?.addEventListener("click", settled(payload.onTitle));
   bindMuteButton(root, payload.audio);
-  bindKeys(() => payload.onRetry?.(), root, payload.audio);
+  bindKeys(settled(payload.onRetry), root, payload.audio);
   focusPrimary(root);
 }

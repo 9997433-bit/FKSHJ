@@ -67,6 +67,9 @@ body,
   width: min(580px, 92vw);
   max-height: 92vh;
   overflow-y: auto;
+  /* 帮助展开 + 矮屏时才会出现滚动条：细条 + 透明轨道，别压圆角 */
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.25) transparent;
   padding: 30px 34px 24px;
   border-radius: 22px;
   background: var(--panel);
@@ -150,6 +153,8 @@ body,
   font-size: 12px;
   font-weight: 700;
   line-height: 1.5;
+  /* 帮助面板整体左对齐，键帽里的字得自己居中才像按键 */
+  text-align: center;
 }
 
 /* 标题 / 结算统计格（存活天数用 .highlight 放大突出） */
