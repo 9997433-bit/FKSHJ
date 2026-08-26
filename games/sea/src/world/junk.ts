@@ -9,20 +9,36 @@
  *
  * 绘制侧只吃结构类型 `JunkView`（`{ kind, x, y }` 加几个可选字段），
  * 所以就算实体状态由别的模块持有，`drawJunk` 也照画不误。
+ *
+ * 「长什么样」不在这个文件里：本体形状全部走 `world/items.ts` 的外观登记表
+ * （`itemArt` / `drawItemBody`）。本模块只管漂浮物**在水面上**的那一层——
+ * 水下影、吃水泡沫、随浪摇摆、沉没淡出。物品目录 `data/catalog.ts` 到位后，
+ * `registerItemArt` 登记的新道具在这里不用改一行就能漂起来：
+ * `drawJunk` 接受任意 id，没登记的画成「未知包裹」。
  */
 
 import { CANVAS, SALVAGE } from "../data/constants";
 import { SKIFF } from "../entities/skiff";
 import { RAFT_ORIGIN, TILE } from "../sim/rules";
-import { swayAt, withAlpha } from "./ocean";
+import { drawItemBody, itemArt } from "./items";
+import { mixHex, swayAt, withAlpha } from "./ocean";
 
 /** 能捞到的四种材料（`SALVAGE.weights` 的键，也是 ResourceId 的子集）。 */
 export type JunkKind = "wood" | "plastic" | "metal" | "rope";
 
 export const JUNK_KINDS: readonly JunkKind[] = ["wood", "plastic", "metal", "rope"];
 
+/**
+ * 绘制侧接受的种类：四种建材，**外加**目录里任意物品 id。
+ *
+ * `(string & {})` 是让编辑器仍然把四种建材列进补全，同时不拒绝新 id——
+ * 漂浮物的**状态**仍然只认 `JunkKind`（入库要对得上 ResourceId），
+ * 放宽的只有画法这一侧。
+ */
+export type DrawableKind = JunkKind | (string & {});
+
 export type JunkStyle = {
-  kind: JunkKind;
+  kind: DrawableKind;
   /** 中文名，HUD 与飘字直接用 */
   label: string;
   tint: string;
@@ -31,21 +47,30 @@ export type JunkStyle = {
   r: number;
 };
 
-/** 外观表。数值平衡在 constants，这里只管长什么样。 */
+function styleOf(kind: DrawableKind): JunkStyle {
+  const art = itemArt(kind);
+  return { kind, label: art.label, tint: art.tint, dark: art.dark, r: art.r };
+}
+
+/**
+ * 四种建材的外观快照。真源是 `world/items.ts` 的登记表，
+ * 这里只是给老调用点留的一张现成的表（颜色、中文名、半径）。
+ */
 export const JUNK_STYLES: Record<JunkKind, JunkStyle> = {
-  wood: { kind: "wood", label: "木板", tint: "#c08b52", dark: "#6d431f", r: 16 },
-  plastic: { kind: "plastic", label: "塑料", tint: "#9fe6ff", dark: "#3b7f9c", r: 13 },
-  metal: { kind: "metal", label: "金属", tint: "#b9c4cc", dark: "#5a6670", r: 14 },
-  rope: { kind: "rope", label: "绳索", tint: "#e0c48a", dark: "#8a6a34", r: 13 },
+  wood: styleOf("wood"),
+  plastic: styleOf("plastic"),
+  metal: styleOf("metal"),
+  rope: styleOf("rope"),
 };
 
-export function junkStyle(kind: JunkKind): JunkStyle {
-  return JUNK_STYLES[kind];
+/** 任意物品 id 的外观；没登记的返回兜底样式，不会是 undefined。 */
+export function junkStyle(kind: DrawableKind): JunkStyle {
+  return (JUNK_STYLES as Record<string, JunkStyle | undefined>)[kind] ?? styleOf(kind);
 }
 
 /** 绘制需要的最少信息；`Junk` 是它的超集。 */
 export type JunkView = {
-  kind: JunkKind;
+  kind: DrawableKind;
   x: number;
   y: number;
   /** 朝向（弧度）；不给按 0 */
@@ -56,6 +81,14 @@ export type JunkView = {
   age?: number;
   /** 相位偏移，避免所有漂浮物同拍摇摆 */
   phase?: number;
+  /**
+   * 画成**另一件东西**的样子（`world/items.ts` 里登记的物品 id）。
+   *
+   * 目录里的道具靠这个上海面：入库仍然按 `kind` 走四种建材（`gain` 只认
+   * ResourceId），但玩家看到的是「一箱工具」「一本航海日记」而不是又一块木板。
+   * 不给就按 `kind` 画。
+   */
+  look?: string;
 };
 
 export type Junk = {
@@ -73,7 +106,14 @@ export type Junk = {
   age: number;
   phase: number;
   taken: boolean;
+  /** 见 `JunkView.look`：换个外观，不换入库的材料 */
+  look?: string;
 };
+
+/** 这件东西该按哪个 id 画：`look` 优先，没有就按 `kind`。 */
+export function junkArtId(j: Pick<JunkView, "kind" | "look">): string {
+  return j.look ?? j.kind;
+}
 
 export type JunkField = {
   items: Junk[];
@@ -134,6 +174,8 @@ export type SpawnOpts = {
   drift?: number;
   /** 活动海域；默认可见画布 */
   bounds?: JunkBounds;
+  /** 见 `JunkView.look`：画成目录里另一件东西，半径也跟着那件走 */
+  look?: string;
 };
 
 /**
@@ -156,7 +198,8 @@ export function makeJunkField(seed: number, prefill = 5): JunkField {
  */
 export function spawnJunk(field: JunkField, opts: SpawnOpts = {}): Junk {
   const kind = opts.kind ?? rollJunkKind(field);
-  const style = JUNK_STYLES[kind];
+  // 半径读外观表：换了 look 的东西，判定圈跟着它真正的个头走
+  const art = itemArt(opts.look ?? kind);
   const drift = opts.drift ?? SALVAGE.driftPxS;
   const b = opts.bounds ?? DEFAULT_BOUNDS;
 
@@ -179,12 +222,13 @@ export function spawnJunk(field: JunkField, opts: SpawnOpts = {}): Junk {
     y,
     vx: Math.cos(dir) * drift * range(field, 0.6, 1.4),
     vy: Math.sin(dir) * drift * range(field, 0.6, 1.4),
-    r: style.r * range(field, 0.85, 1.15),
+    r: art.r * range(field, 0.85, 1.15),
     a: range(field, 0, Math.PI * 2),
     av: range(field, -0.4, 0.4),
     age: 0,
     phase: range(field, 0, Math.PI * 2),
     taken: false,
+    ...(opts.look ? { look: opts.look } : {}),
   };
   field.items.push(j);
   return j;
@@ -277,17 +321,22 @@ export function pickJunk(
   return best;
 }
 
-/** 捞取结果：材料种类与到手数量。 */
-export type JunkHaul = { kind: JunkKind; amount: number };
+/**
+ * 捞取结果：材料种类与到手数量，外加这件东西的**外观 id**——
+ * 飘字要写「捞到一箱工具」而不是「捞到木板」，水花要喷它自己的颜色，
+ * 图鉴要记下这一格，靠的都是 `look`（没换外观时就等于 `kind`）。
+ */
+export type JunkHaul = { kind: JunkKind; amount: number; look: string };
 
 /**
  * 捞走一件并掷产出。重复捞同一件只算一次（第二次 amount = 0），
  * 所以「同一帧点两下」不会双倍到账。
  */
 export function takeJunk(field: JunkField, j: Junk): JunkHaul {
-  if (j.taken) return { kind: j.kind, amount: 0 };
+  const look = junkArtId(j);
+  if (j.taken) return { kind: j.kind, amount: 0, look };
   j.taken = true;
-  return { kind: j.kind, amount: rollJunkYield(field, j.kind) };
+  return { kind: j.kind, amount: rollJunkYield(field, j.kind), look };
 }
 
 /** 收集器一类的自动捞取：吸走圆内最近的一件，返回战利品（没有则 null）。 */
@@ -313,10 +362,16 @@ export function drawJunkField(ctx: CanvasRenderingContext2D, field: JunkField, t
   for (const j of field.items) drawJunk(ctx, j, time);
 }
 
-/** 单件漂浮物：水下影 + 吃水泡沫 + 本体，随涌浪摇摆，快沉时淡出下沉。 */
+/**
+ * 单件漂浮物：水下影 + 吃水泡沫 + 本体，随涌浪摇摆，快沉时淡出下沉。
+ *
+ * 本体交给 `world/items.ts`：`kind` 是什么 id 就画什么，没登记的画成
+ * 「未知包裹」。所以目录里新加的道具丢进 `JunkField` 就能漂，
+ * 这里不需要再来一个 switch。
+ */
 export function drawJunk(ctx: CanvasRenderingContext2D, j: JunkView, time: number): void {
-  const style = JUNK_STYLES[j.kind];
-  const r = j.r ?? style.r;
+  const art = itemArt(junkArtId(j));
+  const r = j.r ?? art.r;
   const phase = j.phase ?? 0;
   const fade = junkFade(j.age ?? 0);
   if (fade <= 0) return;
@@ -334,9 +389,11 @@ export function drawJunk(ctx: CanvasRenderingContext2D, j: JunkView, time: numbe
   ctx.fill();
   ctx.restore();
 
+  // 吃水泡沫：白里掺一点本体的颜色。1× 缩放下本体只剩十几个像素，
+  // 这圈染了色的水线是「远处那件是什么」的第一个线索
   ctx.save();
-  ctx.globalAlpha = 0.3 * fade;
-  ctx.strokeStyle = "#ffffff";
+  ctx.globalAlpha = 0.32 * fade;
+  ctx.strokeStyle = mixHex("#ffffff", art.tint, 0.4);
   ctx.lineWidth = 1.5;
   ctx.beginPath();
   ctx.ellipse(x, y, r * 1.15, r * 0.95, sway.rot, 0, Math.PI * 2);
@@ -348,132 +405,13 @@ export function drawJunk(ctx: CanvasRenderingContext2D, j: JunkView, time: numbe
   ctx.translate(x, y);
   ctx.rotate((j.a ?? 0) + sway.rot);
   ctx.scale(scale, scale);
-  switch (j.kind) {
-    case "wood":
-      drawWood(ctx, r);
-      break;
-    case "plastic":
-      drawPlastic(ctx, r, time + phase);
-      break;
-    case "metal":
-      drawMetal(ctx, r);
-      break;
-    default:
-      drawRope(ctx, r);
-      break;
-  }
+  drawItemBody(ctx, art, r, time + phase);
   ctx.restore();
-}
-
-function drawWood(ctx: CanvasRenderingContext2D, r: number): void {
-  const s = JUNK_STYLES.wood;
-  const w = r * 2.2;
-  const h = r * 0.72;
-  ctx.fillStyle = s.dark;
-  ctx.fillRect(-w / 2, -h / 2 + 2, w, h);
-  ctx.fillStyle = s.tint;
-  ctx.fillRect(-w / 2, -h / 2, w, h - 2);
-  ctx.strokeStyle = withAlpha(s.dark, 0.6);
-  ctx.lineWidth = 1;
-  for (let i = 1; i < 3; i++) {
-    const y = -h / 2 + (h * i) / 3;
-    ctx.beginPath();
-    ctx.moveTo(-w / 2 + 3, y);
-    ctx.lineTo(w / 2 - 3, y);
-    ctx.stroke();
-  }
-  ctx.fillStyle = "#7d8790";
-  for (const x of [-w * 0.34, w * 0.34]) {
-    ctx.beginPath();
-    ctx.arc(x, 0, 1.5, 0, Math.PI * 2);
-    ctx.fill();
-  }
-}
-
-function drawPlastic(ctx: CanvasRenderingContext2D, r: number, time: number): void {
-  const s = JUNK_STYLES.plastic;
-  const w = r * 1.05;
-  const h = r * 1.85;
-
-  ctx.fillStyle = withAlpha(s.tint, 0.85);
-  ctx.beginPath();
-  ctx.moveTo(-w / 2, h / 2);
-  ctx.lineTo(-w / 2, -h * 0.16);
-  ctx.quadraticCurveTo(-w / 2, -h * 0.42, -w * 0.18, -h * 0.46);
-  ctx.lineTo(-w * 0.18, -h / 2);
-  ctx.lineTo(w * 0.18, -h / 2);
-  ctx.lineTo(w * 0.18, -h * 0.46);
-  ctx.quadraticCurveTo(w / 2, -h * 0.42, w / 2, -h * 0.16);
-  ctx.lineTo(w / 2, h / 2);
-  ctx.closePath();
-  ctx.fill();
-  ctx.strokeStyle = withAlpha(s.dark, 0.7);
-  ctx.lineWidth = 1.2;
-  ctx.stroke();
-
-  ctx.fillStyle = "#ff7a5c";
-  ctx.fillRect(-w * 0.22, -h / 2 - 3, w * 0.44, 4);
-  ctx.fillStyle = withAlpha("#ffffff", 0.35 + Math.abs(Math.sin(time * 2)) * 0.25);
-  ctx.fillRect(-w * 0.3, -h * 0.12, 2.2, h * 0.42);
-}
-
-function drawMetal(ctx: CanvasRenderingContext2D, r: number): void {
-  const s = JUNK_STYLES.metal;
-  const w = r * 1.6;
-  const h = r * 1.2;
-  ctx.fillStyle = s.dark;
-  ctx.fillRect(-w / 2, -h / 2 + 2, w, h);
-  ctx.fillStyle = s.tint;
-  ctx.fillRect(-w / 2, -h / 2, w, h - 2);
-  ctx.strokeStyle = withAlpha(s.dark, 0.85);
-  ctx.lineWidth = 2;
-  for (const x of [-w * 0.22, w * 0.22]) {
-    ctx.beginPath();
-    ctx.moveTo(x, -h / 2);
-    ctx.lineTo(x, h / 2 - 2);
-    ctx.stroke();
-  }
-  ctx.fillStyle = "rgba(160, 84, 40, 0.55)";
-  ctx.beginPath();
-  ctx.arc(-w * 0.3, h * 0.16, 2.4, 0, Math.PI * 2);
-  ctx.arc(w * 0.34, -h * 0.2, 1.8, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.fillStyle = withAlpha("#ffffff", 0.32);
-  ctx.fillRect(-w / 2 + 2, -h / 2 + 2, w * 0.16, h - 6);
-}
-
-function drawRope(ctx: CanvasRenderingContext2D, r: number): void {
-  const s = JUNK_STYLES.rope;
-  const rad = r * 0.95;
-  ctx.strokeStyle = s.dark;
-  ctx.lineWidth = 5;
-  ctx.beginPath();
-  ctx.ellipse(0, 0, rad, rad * 0.78, 0, 0, Math.PI * 2);
-  ctx.stroke();
-  ctx.strokeStyle = s.tint;
-  ctx.lineWidth = 3.2;
-  ctx.beginPath();
-  ctx.ellipse(0, 0, rad, rad * 0.78, 0, 0, Math.PI * 2);
-  ctx.stroke();
-  ctx.beginPath();
-  ctx.ellipse(0, 0, rad * 0.55, rad * 0.42, 0, 0, Math.PI * 2);
-  ctx.stroke();
-  ctx.strokeStyle = withAlpha(s.dark, 0.8);
-  ctx.lineWidth = 1.1;
-  for (let i = 0; i < 10; i++) {
-    const a = (i / 10) * Math.PI * 2;
-    const x = Math.cos(a) * rad;
-    const y = Math.sin(a) * rad * 0.78;
-    ctx.beginPath();
-    ctx.moveTo(x * 0.85, y * 0.85);
-    ctx.lineTo(x * 1.15, y * 1.15);
-    ctx.stroke();
-  }
 }
 
 /**
  * 捞取提示：够得着的漂浮物外面套一个高亮环。
- * 会话在小船进入 `BOAT.pickupRadiusPx` 时调用，玩家才知道按空格能捞谁。
+ * 会话在小船进入 `SKIFF.scoopRadius` 时调用，玩家才知道按空格能捞谁。
  */
 export function drawJunkHighlight(
   ctx: CanvasRenderingContext2D,
@@ -481,15 +419,27 @@ export function drawJunkHighlight(
   time: number,
   color = "#ffd166",
 ): void {
-  const r = (j.r ?? JUNK_STYLES[j.kind].r) + 8;
+  const art = itemArt(junkArtId(j));
+  const r = (j.r ?? art.r) + 8;
   const sway = swayAt(j.x, j.y, time + (j.phase ?? 0), 1);
+  const x = j.x + sway.dx;
+  const y = j.y + sway.dy;
+  const fade = junkFade(j.age ?? 0);
   ctx.save();
   ctx.strokeStyle = color;
-  ctx.globalAlpha = 0.85 * junkFade(j.age ?? 0);
+  ctx.globalAlpha = 0.85 * fade;
   ctx.lineWidth = 2;
   ctx.setLineDash([5, 4]);
   ctx.beginPath();
-  ctx.arc(j.x + sway.dx, j.y + sway.dy, r * (1 + Math.sin(time * 5) * 0.05), 0, Math.PI * 2);
+  ctx.arc(x, y, r * (1 + Math.sin(time * 5) * 0.05), 0, Math.PI * 2);
+  ctx.stroke();
+  // 环上开个口，露出本体的颜色：瞄上的这件是什么，不用等捞上来才知道
+  ctx.setLineDash([]);
+  ctx.strokeStyle = withAlpha(art.tint, 0.9 * fade);
+  ctx.globalAlpha = 1;
+  ctx.lineWidth = 2.6;
+  ctx.beginPath();
+  ctx.arc(x, y, r * 1.16, -Math.PI * 0.62, -Math.PI * 0.38);
   ctx.stroke();
   ctx.restore();
 }
