@@ -1,4 +1,4 @@
-import { LANES, PLAYER, SPEED } from "../data/constants";
+import { FEEL, LANES, PLAYER, SPEED } from "../data/constants";
 import { chuteBank } from "../game/camera";
 import {
   applyWallScrape,
@@ -9,17 +9,6 @@ import {
   stepSlip,
   type Motion,
 } from "../game/physics";
-
-/** Press this early and the hop still fires the moment the cooldown clears. */
-const JUMP_BUFFER = 0.13;
-/** Weights for how much of a carve comes from swapping lanes vs. the chute's own bank. */
-const SWITCH_CARVE = 0.8;
-const CHUTE_CARVE = 0.45;
-/** In the air there is no water to scrub against. */
-const AIR_CARVE = 0.25;
-const DEFAULT_LIFT = 34;
-/** Steering into the wall keeps costing speed, but only this often. */
-const WALL_SCRAPE_CD = 0.45;
 
 /** Hop arc, 0 at both ends and 1 at the apex: quick pop up, a beat of hang, brisk landing. */
 export function hopCurve(t: number): number {
@@ -91,7 +80,7 @@ export class Player {
   }
 
   /** Screen-space lift of the raft at this point in the hop. */
-  hopLift(max = DEFAULT_LIFT): number {
+  hopLift(max: number = FEEL.hopLiftPx): number {
     return hopCurve(this.hopT) * max;
   }
 
@@ -110,7 +99,7 @@ export class Player {
 
   tryJump(): boolean {
     if (this.startHop()) return true;
-    this.jumpBuffer = JUMP_BUFFER;
+    this.jumpBuffer = FEEL.jumpBufferS;
     return false;
   }
 
@@ -144,7 +133,7 @@ export class Player {
   hurt(): boolean {
     if (this.invuln > 0 || this.airborne) return false;
     this.hp -= 1;
-    this.invuln = 0.85;
+    this.invuln = FEEL.hurtInvulnS;
     return true;
   }
 
@@ -168,7 +157,7 @@ export class Player {
   /** Leaning on a wall you cannot pass: costs speed rather than doing nothing at all. */
   private scrapeWall(): void {
     if (this.wallCd > 0) return;
-    this.wallCd = WALL_SCRAPE_CD;
+    this.wallCd = FEEL.wallScrapeCdS;
     applyWallScrape(this.motion);
   }
 
@@ -183,7 +172,7 @@ export class Player {
   /** 0..1 of how hard the raft is cutting sideways right now. */
   private carve(): number {
     const swing = this.switchT < 1 ? 1 - Math.abs(this.switchT * 2 - 1) : 0;
-    const bank = swing * SWITCH_CARVE + Math.abs(chuteBank(this.z)) * CHUTE_CARVE;
-    return Math.min(1, bank) * (this.airborne ? AIR_CARVE : 1);
+    const bank = swing * FEEL.switchCarve + Math.abs(chuteBank(this.z)) * FEEL.chuteCarve;
+    return Math.min(1, bank) * (this.airborne ? FEEL.airCarve : 1);
   }
 }

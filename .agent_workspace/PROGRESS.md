@@ -52,6 +52,6 @@
 | fable-arch | cloud | `bc-99bd9075-210f-5450-839a-ef6ba23a43d5` | 运行中 |
 | fable-sota | cloud | `bc-0de9872a-cdc0-50c1-b024-615242ba7a3c` | 运行中 |
 | opus-content | cloud | `bc-b17b23ab-9bd3-5bc4-b392-8e2f17747b8a` | 运行中 |
-| opus-core | local | `bc-e130416a-13a5-5d7d-89ad-7c311efebd6e` | 运行中 |
+| opus-core | local | `bc-e130416a-13a5-5d7d-89ad-7c311efebd6e` | 已完成（CAMERA/FEEL 落地，session 已接 hitstop） |
 | gpt-test | local | `bc-a7fc467f-8428-5722-8dc9-0a2249e9e92f` | 已完成（34 测已覆盖，无新增文件） |
 | gpt-probe | local | `bc-40987e5d-50cd-5073-92de-b4194b614be2` | 已完成（BENCH 快照已刷新） |

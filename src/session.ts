@@ -9,7 +9,7 @@ import { capParticles, drawParticles, MAX_PARTICLES, type Particle } from "./fx/
 import { bigSplash, boostWake, sparkle, splash } from "./fx/splash";
 import { circleHit, sameLane } from "./game/collision";
 import { project } from "./game/camera";
-import { applyBoost, applyHit, comboBonus, stepSpeed } from "./game/physics";
+import { applyBoost, applyHit, comboBonus, stepSpeed, takeHitstop } from "./game/physics";
 import {
   generateAhead,
   generateWorld,
@@ -78,17 +78,18 @@ export class Session {
   update(dt: number, steer: -1 | 0 | 1, wantJump: boolean): void {
     if (this.over) return;
     this.time += dt;
+    const step = takeHitstop(this.player.motion, dt);
     if (steer) this.player.trySwitch(steer);
     if (wantJump && this.player.tryJump()) this.sfx.jump();
-    this.player.step(dt);
+    this.player.step(step);
     if (this.player.consumeHopStart()) this.sfx.jump();
-    const spd = stepSpeed(this.player.motion, dt);
-    const dz = spd * dt * FEEL.worldScale;
+    const spd = stepSpeed(this.player.motion, step);
+    const dz = spd * step * FEEL.worldScale;
     this.distance += dz;
     this.score += dz * SCORE.distMul;
     this.player.z = this.distance;
     generateAhead(this.world, this.distance + STREAM_AHEAD);
-    this.comboT -= dt;
+    this.comboT -= step;
     if (this.comboT <= 0) this.combo = 0;
 
     this.collect();

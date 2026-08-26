@@ -1,4 +1,4 @@
-import { LANES } from "../data/constants";
+import { FEEL, LANES } from "../data/constants";
 
 export function circleHit(
   ax: number,
@@ -42,7 +42,7 @@ export function nearMiss(
   return depth < 0 && depth >= -margin;
 }
 
-export function sameLane(a: number, b: number, tol = 0.35): boolean {
+export function sameLane(a: number, b: number, tol: number = FEEL.laneTol): boolean {
   return Math.abs(a - b) <= tol;
 }
 

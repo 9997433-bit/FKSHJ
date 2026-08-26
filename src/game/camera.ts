@@ -1,4 +1,4 @@
-import { CANVAS, GEN } from "../data/constants";
+import { CAMERA, CANVAS, GEN } from "../data/constants";
 
 export type Projected = { x: number; y: number; s: number; z: number };
 
@@ -9,18 +9,10 @@ export type ProjectOpts = {
   sway?: boolean;
 };
 
-export const HORIZON_Y = CANVAS.h * 0.18;
+export const HORIZON_Y = CANVAS.h * CAMERA.horizonFrac;
 
-const NEAR = 40;
+/** Far clip has no CAMERA field of its own: the view depth is GEN.horizon, one source. */
 const FAR = GEN.horizon;
-const BEND_FAST = 26;
-const BEND_SLOW = 12;
-const BEND_FAST_K = 0.004;
-const BEND_SLOW_K = 0.0011;
-const BEND_SLOW_PHASE = 1.7;
-/** Bend slope that reads as a full-tilt carve. */
-const BANK_FULL = 0.12;
-const SHAKE_DECAY = 3.4;
 
 const cam = { z: 0, time: 0, shake: 0, swayX: 0, swayY: 0 };
 
@@ -30,17 +22,19 @@ const cam = { z: 0, time: 0, shake: 0, swayX: 0, swayY: 0 };
  */
 export function chuteBend(worldZ: number): number {
   return (
-    Math.sin(worldZ * BEND_FAST_K) * BEND_FAST +
-    Math.sin(worldZ * BEND_SLOW_K + BEND_SLOW_PHASE) * BEND_SLOW
+    Math.sin(worldZ * CAMERA.bendFastFreq) * CAMERA.bendFastAmp +
+    Math.sin(worldZ * CAMERA.bendSlowFreq + CAMERA.bendSlowPhase) * CAMERA.bendSlowAmp
   );
 }
 
 /** How hard the chute banks at a world depth, signed and normalised to -1..1. */
 export function chuteBank(worldZ: number): number {
   const slope =
-    Math.cos(worldZ * BEND_FAST_K) * BEND_FAST * BEND_FAST_K +
-    Math.cos(worldZ * BEND_SLOW_K + BEND_SLOW_PHASE) * BEND_SLOW * BEND_SLOW_K;
-  return Math.max(-1, Math.min(1, slope / BANK_FULL));
+    Math.cos(worldZ * CAMERA.bendFastFreq) * CAMERA.bendFastAmp * CAMERA.bendFastFreq +
+    Math.cos(worldZ * CAMERA.bendSlowFreq + CAMERA.bendSlowPhase) *
+      CAMERA.bendSlowAmp *
+      CAMERA.bendSlowFreq;
+  return Math.max(-1, Math.min(1, slope / CAMERA.bankFull));
 }
 
 /** Point the camera at a stretch of slide. The track pass calls this before anything projects. */
@@ -48,7 +42,7 @@ export function syncCamera(z: number, time: number): void {
   const dt = Math.max(0, Math.min(0.1, time - cam.time));
   cam.z = z;
   cam.time = time;
-  cam.shake = Math.max(0, cam.shake - dt * SHAKE_DECAY);
+  cam.shake = Math.max(0, cam.shake - dt * CAMERA.shakeDecay);
 
   const kick = cam.shake * cam.shake;
   cam.swayX = Math.sin(time * 0.9) * 3.4 + Math.sin(time * 2.3 + 1.1) * 1.2 + Math.sin(time * 71) * 7 * kick;
@@ -62,14 +56,17 @@ export function kickCamera(power = 1): void {
 
 /** 2.5D：世界 (laneX, zAhead) → 屏幕 */
 export function project(laneX: number, zAhead: number, opts: ProjectOpts = {}): Projected {
-  const depth = Math.max(NEAR, zAhead);
+  const depth = Math.max(CAMERA.near, zAhead);
   const t = 1 - Math.min(1, depth / FAR);
-  const s = 0.22 + t * 1.15;
+  const s = CAMERA.scaleMin + t * CAMERA.scaleSpan;
   const bend = opts.bend === false ? 0 : chuteBend(cam.z + depth);
   const nearness = opts.sway === false ? 0 : 0.35 + t * 0.65;
   return {
     x: CANVAS.w * 0.5 + (laneX + bend) * s + cam.swayX * nearness,
-    y: HORIZON_Y + (CANVAS.h - HORIZON_Y - 70) * (1 - Math.pow(1 - t, 1.15)) + cam.swayY * nearness,
+    y:
+      HORIZON_Y +
+      (CANVAS.h - HORIZON_Y - CAMERA.bottomPad) * (1 - Math.pow(1 - t, CAMERA.depthCurve)) +
+      cam.swayY * nearness,
     s,
     z: depth,
   };
