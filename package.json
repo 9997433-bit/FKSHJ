@@ -10,7 +10,8 @@
     "preview": "vite preview --host 127.0.0.1 --port 4173",
     "test": "node --import tsx --test src/tests/*.test.ts",
     "bench": "node --import tsx scripts/bench.ts",
-    "smoke": "node scripts/smoke.mjs"
+    "smoke": "node scripts/smoke.mjs",
+    "probe": "node --import tsx scripts/probe-session.ts"
   },
   "devDependencies": {
     "tsx": "^4.20.5",

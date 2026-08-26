@@ -31,7 +31,7 @@
 | SOTA UX | fable | claude-fable-5-thinking-xhigh | cloud | `bc-680fc86e-e1a4-5034-8aea-9f8e61d7dd17` | 运行中 |
 | 内容特效 | opus-fast | claude-opus-5-thinking-high-fast | cloud | `bc-287bff11-630f-5105-9ac1-e75ab4e735e8` | 运行中 |
 | 核心玩法 | opus-fast | claude-opus-5-thinking-high-fast | local | `bc-f3586f19-030d-5668-9bb1-afa8ace61564` | 运行中 |
-| 单测覆盖 | gpt-sol | gpt-5.6-sol-xhigh-fast | local | `bc-9fcce4c8-069a-5523-9d38-a0c8200a928f` | 运行中 |
-| 探针基准 | gpt-sol | gpt-5.6-sol-xhigh-fast | local | `bc-aaa77fd6-0569-5a4c-948c-c5252e446880` | 运行中 |
+| 单测覆盖 | gpt-sol | gpt-5.6-sol-xhigh-fast | local | `bc-9fcce4c8-069a-5523-9d38-a0c8200a928f` | 已完成（14 测全绿，已收编测试文件） |
+| 探针基准 | gpt-sol | gpt-5.6-sol-xhigh-fast | local | `bc-aaa77fd6-0569-5a4c-948c-c5252e446880` | 已完成（bench/smoke/probe 已收编） |
 
 平台约束：异步新云端 VM 上限为 3，因此 fable×2 + opus-content 走云端独立工作树；opus-core / gpt-test / gpt-probe 走本机隔离任务（文件所有权不重叠）。未静默更换模型 slug。
