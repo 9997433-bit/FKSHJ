@@ -363,7 +363,7 @@ function drawDepthMottle(ctx: CanvasRenderingContext2D, p: SeaPalette): void {
     const ry = rx * (0.45 + hash01(i * 5.5) * 0.4);
     const deep = hash01(i * 9.3) > 0.42;
     const blob = ctx.createRadialGradient(x, y, 4, x, y, rx);
-    blob.addColorStop(0, withAlpha(deep ? p.deep : mixHex(p.shallow, p.caustic, 0.35), deep ? 0.16 : 0.07));
+    blob.addColorStop(0, withAlpha(deep ? p.deep : mixHex(p.shallow, p.caustic, 0.35), deep ? 0.28 : 0.12));
     blob.addColorStop(1, withAlpha(p.deep, 0));
     ctx.fillStyle = blob;
     ctx.beginPath();
@@ -491,7 +491,7 @@ export function drawCaustics(
           );
         }
       }
-      ctx.globalAlpha = (0.035 + Math.abs(Math.sin(time * 0.55 + gy * 0.5 + pass)) * 0.04) * veil;
+      ctx.globalAlpha = (0.055 + Math.abs(Math.sin(time * 0.55 + gy * 0.5 + pass)) * 0.06) * veil;
       ctx.stroke();
     }
   }

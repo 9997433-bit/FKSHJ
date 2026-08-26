@@ -1314,27 +1314,46 @@ function drawBuildIcon(ctx: CanvasRenderingContext2D, slot: BuildSlot, cx: numbe
 // ---- 基础件 ----
 
 /**
- * 磨砂暗玻璃面板：接触阴影 + 本体 + 1px 上沿高光。
- * 不用纯白描边、不用斜杠高光、不用双色廉价渐变。
+ * 漆面木匣：接触阴影 + 暖木底 + 上沿包浆高光 + 四角钉。
+ * HUD 也要回答「我是什么材质做的」，不能是系统圆角卡片。
  */
 function panel(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number): void {
   ctx.save();
-  ctx.fillStyle = "rgba(0, 0, 0, 0.28)";
-  roundRect(ctx, x, y + 2, w, h, 12);
+  ctx.fillStyle = "rgba(0, 0, 0, 0.34)";
+  roundRect(ctx, x, y + 3, w, h, 10);
   ctx.fill();
-  ctx.fillStyle = HUD_COLORS.panel;
-  roundRect(ctx, x, y, w, h, 12);
+
+  const wood = ctx.createLinearGradient(x, y, x, y + h);
+  wood.addColorStop(0, "rgba(42, 32, 22, 0.9)");
+  wood.addColorStop(0.55, "rgba(22, 18, 14, 0.88)");
+  wood.addColorStop(1, "rgba(16, 14, 12, 0.9)");
+  ctx.fillStyle = wood;
+  roundRect(ctx, x, y, w, h, 10);
   ctx.fill();
-  ctx.strokeStyle = HUD_COLORS.panelLine;
+
+  ctx.strokeStyle = "rgba(168, 132, 78, 0.28)";
   ctx.lineWidth = 1;
-  roundRect(ctx, x, y, w, h, 12);
+  roundRect(ctx, x + 0.5, y + 0.5, w - 1, h - 1, 9.5);
   ctx.stroke();
+
   ctx.beginPath();
-  ctx.moveTo(x + 12, y + 1);
-  ctx.lineTo(x + w - 12, y + 1);
-  ctx.strokeStyle = "rgba(236, 228, 208, 0.14)";
-  ctx.lineWidth = 1;
+  ctx.moveTo(x + 10, y + 1.2);
+  ctx.lineTo(x + w - 10, y + 1.2);
+  ctx.strokeStyle = "rgba(232, 208, 150, 0.2)";
+  ctx.lineWidth = 1.2;
   ctx.stroke();
+
+  ctx.fillStyle = "rgba(168, 148, 110, 0.55)";
+  for (const [dx, dy] of [
+    [6, 6],
+    [w - 6, 6],
+    [6, h - 6],
+    [w - 6, h - 6],
+  ] as const) {
+    ctx.beginPath();
+    ctx.arc(x + dx, y + dy, 1.3, 0, Math.PI * 2);
+    ctx.fill();
+  }
   ctx.restore();
 }
 

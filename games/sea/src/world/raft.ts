@@ -35,11 +35,11 @@ export const STRUCTURE_TINT: Record<BuildingId, string> = {
 
 /** 甲板木色：偏灰的湿木，禁止橙棕塑料贴面。 */
 const WOOD = {
-  light: "#c4a06a",
-  mid: "#9a7044",
-  dark: "#5a3a22",
-  wet: "#6a4a2e",
-  end: "#4a2e18",
+  light: "#c8a46c",
+  mid: "#8a6238",
+  dark: "#4e321c",
+  wet: "#3e2a18",
+  end: "#2a180e",
 } as const;
 
 /**
@@ -237,8 +237,8 @@ function drawDeck(ctx: CanvasRenderingContext2D, c: RaftCellView, view: RaftView
     ctx.fillRect(x, y, w, h);
 
     // 木纹顺着切割方向走，每条板自己的疏密，破掉「平铺贴图」
-    ctx.strokeStyle = withAlpha(WOOD.end, 0.28 + tone * 0.18);
-    ctx.lineWidth = 0.85;
+    ctx.strokeStyle = withAlpha(WOOD.end, 0.42 + tone * 0.22);
+    ctx.lineWidth = 1.15;
     const grains = 2 + Math.floor(hash01(seed + i * 9) * 2);
     for (let g = 1; g <= grains; g++) {
       const t = g / (grains + 1);
