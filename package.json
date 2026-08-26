@@ -1,0 +1,21 @@
+{
+  "name": "crazy-water-world",
+  "version": "0.1.0",
+  "private": true,
+  "description": "疯狂水世界 — 水上乐园滑道街机游戏",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview --host 127.0.0.1 --port 4173",
+    "test": "node --import tsx --test src/tests/*.test.ts",
+    "bench": "node --import tsx scripts/bench.ts",
+    "smoke": "node scripts/smoke.mjs",
+    "probe": "node --import tsx scripts/probe-session.ts"
+  },
+  "devDependencies": {
+    "tsx": "^4.20.5",
+    "typescript": "^5.9.2",
+    "vite": "^7.1.3"
+  }
+}
