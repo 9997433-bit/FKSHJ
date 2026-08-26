@@ -37,6 +37,8 @@ export type GameLoop = {
  * - dispose 后的 start() 被拒绝（warn + no-op）：visibility 监听已被
  *   移除，复活的循环会失去「隐藏即暂停」语义，属于用后即弃的误用。
  * - 模块在 Node 环境可安全 import（便于单测），仅 start 后才依赖 rAF。
+ * - LOOP 是 data/constants.ts 里「被运行时消费」的一段（非文档镜像）：
+ *   maxDtS 同时也是 sim 侧「长挂起不隧穿」保证的来源，改前读该文件头注释。
  */
 export function createLoop(tick: TickFn): GameLoop {
   let raf = 0;

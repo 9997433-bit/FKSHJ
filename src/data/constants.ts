@@ -1,14 +1,35 @@
 /**
- * 全局数值表（Round 1 fable-arch 所有）。
+ * 全局数值表（fable-arch 维护；Round 2 已与 sim 对齐）。
+ *
+ * 先读这段再改数——本文件的导出分两类：
+ *
+ * 1. 【被运行时消费】CANVAS、LOOP、SAVE_KEY、DAY、SALVAGE。
+ *    改这里就是改游戏。动形状前先查引用：engine/input/hud/rules 吃
+ *    CANVAS，loop 吃 LOOP，save 吃 SAVE_KEY，ocean 吃 DAY，
+ *    junk 吃 SALVAGE 的**每一个键**（含 weights / yields 的元组形状）。
+ *
+ * 2. 【文档镜像】其余全部（TILE、RESOURCE_CAP、START_RESOURCES、
+ *    BUILD_COST、STRUCTURE_HP、PRODUCTION、CREW/UPKEEP/REPAIR/STARVE、
+ *    STORM/WAVE/TURRET、PIRATE、SKIFF）。运行时真相在 sim 侧本地副本：
+ *    `sim/rules.ts`（资源/建筑/网格）、`sim/economy.ts`（产出/吃喝/维修/
+ *    断粮）、`sim/threats.ts`（风暴/海盗波/炮塔）、`entities/skiff.ts` 与
+ *    `entities/pirate.ts`（小船/海盗手感）。sim 并**不** import 镜像段；
+ *    改平衡请改 sim 原件，再回来同步这里。两边不一致时，以能跑的 sim 为准。
  *
  * 约定：
- * - 本文件只放「数」和共享 id 类型，不放逻辑；sim / entities / ui / fx
- *   一律从这里取数，禁止在各自模块里散落魔法数字。
- * - 单位：长度 = 逻辑像素（CANVAS 坐标系），时间 = 秒，速率 = 单位/秒。
- * - 平衡目标：不建任何产出建筑时，约 145 秒出现第一次生存危机；
- *   开局库存刚好够「净水机 + 钓鱼台」各一座，海盗首波前有约 4 分钟
- *   攒金属造炮塔的窗口。改数请保持这三条成立。
+ * - 单位：长度 = 逻辑像素（CANVAS 坐标系），时间 = 秒。
+ * - 网格全游戏只有一套：格边长 64px、原点在画布正中、格坐标为有符号
+ *   整数（见 TILE 注释）。禁止再发明第二套网格。
+ *
+ * 平衡现状（按 sim 数值算）：什么都不建时，淡水 45 ÷ (3 人 × 0.12/s)
+ * ≈ 125 秒见底，再加 25 秒断粮宽限 ≈ 150 秒结算。首场风暴 50 秒、
+ * 海盗首波 55 秒；开局金属 8 恰好一座炮塔（但净水机也要金属 4，
+ * 二选一，缺口靠捞或击杀海盗补）。
  */
+
+// ═══════════════════════════════════════════════════════════════════
+// 一、被运行时消费的数（这里就是真相）
+// ═══════════════════════════════════════════════════════════════════
 
 /** 逻辑画布尺寸与 DPR 上限。所有绘制工作在 w×h 逻辑坐标系（engine.fit 负责换算）。 */
 export const CANVAS = { w: 1280, h: 720, maxDpr: 2 } as const;
@@ -19,118 +40,7 @@ export const LOOP = { maxDtS: 0.033, fallbackDtS: 0.016 } as const;
 /** localStorage 存档键（读写实现在 src/data/save.ts，归 opus-content）。 */
 export const SAVE_KEY = "cww_sea_v1";
 
-// ---------------------------------------------------------------------------
-// 木筏网格
-// ---------------------------------------------------------------------------
-
-/**
- * 木筏建造网格。格坐标 (gx, gy) ∈ [0, gridW) × [0, gridH)，
- * 换算到逻辑像素：px = originX + gx * sizePx（originY / gy 同理）。
- * 网格居中放置，四周留出开阔海面给拾荒小船活动。
- */
-export const TILE = {
-  /** 一格边长（逻辑像素） */
-  sizePx: 48,
-  /** 可建区宽度（格数）；15 × 48 = 720px */
-  gridW: 15,
-  /** 可建区高度（格数）；11 × 48 = 528px */
-  gridH: 11,
-  /** 网格左上角在逻辑画布中的 X 偏移 = (1280 − 720) / 2 */
-  originX: 280,
-  /** 网格左上角在逻辑画布中的 Y 偏移 = (720 − 528) / 2 */
-  originY: 96,
-  /** 开局木筏边长（格）：正中 3×3，中心格为指挥中心 */
-  startSize: 3,
-} as const;
-
-// ---------------------------------------------------------------------------
-// 资源
-// ---------------------------------------------------------------------------
-
-/** 六种资源：前四种是建材（捞/产），后两种是生存消耗品（产/耗）。 */
-export type ResourceId = "wood" | "plastic" | "metal" | "rope" | "water" | "food";
-
-/** 仓储上限。捞取与产出超过上限的部分直接丢弃（不欠账、不溢出到别的资源）。 */
-export const RESOURCE_CAP: Record<ResourceId, number> = {
-  wood: 200, // 木板：最大宗建材
-  plastic: 150, // 塑料：次级建材
-  metal: 100, // 金属：稀缺，炮塔/净水机专用
-  rope: 80, // 绳索：辅料
-  water: 120, // 淡水：生存品
-  food: 120, // 食物：生存品
-};
-
-/** 开局库存：刚好覆盖净水机 + 钓鱼台的花费，生存品够撑到产线立起来。 */
-export const STARTING_STOCK: Record<ResourceId, number> = {
-  wood: 24,
-  plastic: 16,
-  metal: 6,
-  rope: 6,
-  water: 60, // 3 岛民 × 0.2/s = 0.6/s → 100 秒耗尽
-  food: 60, // 3 岛民 × 0.15/s = 0.45/s → 133 秒耗尽
-};
-
-// ---------------------------------------------------------------------------
-// 建筑：花费 / 血量 / 产速
-// ---------------------------------------------------------------------------
-
-/** 可建造建筑 id（快捷键 1–5 依此顺序）。指挥中心 hq 预置不可建，见 StructureId。 */
-export type BuildingId = "floor" | "collector" | "purifier" | "fish" | "turret";
-
-/** 木筏上一切可受击结构 = 可建建筑 + 预置指挥中心。 */
-export type StructureId = BuildingId | "hq";
-
-/** 建造花费。放置瞬间一次性整体扣除（原子性契约见 ARCHITECTURE.md §5.1）。 */
-export const BUILD_COST: Record<BuildingId, Partial<Record<ResourceId, number>>> = {
-  floor: { wood: 6, plastic: 2 }, // 地基：唯一可铺在海面的建筑
-  collector: { wood: 10, plastic: 6, rope: 2 }, // 收集器：被动产建材
-  purifier: { plastic: 8, metal: 4 }, // 净水机：产淡水
-  fish: { wood: 8, rope: 4 }, // 钓鱼台：产食物
-  turret: { metal: 10, plastic: 4, rope: 2 }, // 炮塔：唯一对海盗输出
-};
-
-/** 结构血量。风暴与海盗按此扣血，归零即拆除（hq 归零 = 结算）。 */
-export const STRUCTURE_HP: Record<StructureId, number> = {
-  hq: 40,
-  floor: 10,
-  collector: 12,
-  purifier: 12,
-  fish: 12,
-  turret: 20,
-};
-
-/**
- * 建筑被动产速（单位/秒，逐帧结算 rate × dt，受 RESOURCE_CAP 截断）。
- * 一座净水机（0.9）> 全队水耗（0.6）；一座钓鱼台（0.7）> 全队食耗（0.45）：
- * 各一座即达成收支平衡，再多是为风暴损耗留冗余。
- */
-export const PRODUCTION: Partial<Record<BuildingId, Partial<Record<ResourceId, number>>>> = {
-  collector: { wood: 0.3, plastic: 0.2 }, // 建材慢流；快路线是开船去捞
-  purifier: { water: 0.9 },
-  fish: { food: 0.7 },
-};
-
-// ---------------------------------------------------------------------------
-// 生存消耗
-// ---------------------------------------------------------------------------
-
-/** 岛民生存消耗。淡水或食物任一见底后开始扣「断供宽限」，宽限耗尽 = 结算。 */
-export const UPKEEP = {
-  /** 岛民数（Round 1 固定，不招募） */
-  crew: 3,
-  /** 每岛民每秒淡水消耗 */
-  waterPerCrewPerS: 0.2,
-  /** 每岛民每秒食物消耗 */
-  foodPerCrewPerS: 0.15,
-  /** 断供宽限（秒）：断水/断粮各自独立计时，恢复供应即按同速回填 */
-  starveGraceS: 45,
-} as const;
-
-// ---------------------------------------------------------------------------
-// 昼夜
-// ---------------------------------------------------------------------------
-
-/** 昼夜循环。相位 = (elapsed / lengthS) mod 1；仅影响视觉氛围与 HUD 报天数。 */
+/** 昼夜循环（ocean.ts 消费）。相位 = (elapsed / lengthS) mod 1；仅影响视觉与 HUD 报天数。 */
 export const DAY = {
   /** 一昼夜时长（秒） */
   lengthS: 120,
@@ -138,81 +48,7 @@ export const DAY = {
   nightFrac: 0.25,
 } as const;
 
-// ---------------------------------------------------------------------------
-// 风暴
-// ---------------------------------------------------------------------------
-
-/** 风暴：周期性打击木筏「外圈」（四向邻格含海面的结构），逼玩家往外扩防波层。 */
-export const STORM = {
-  /** 首场风暴时刻（局内秒） */
-  firstAtS: 150,
-  /** 之后的平均间隔（秒） */
-  intervalS: 180,
-  /** 间隔抖动 ±（秒），避免节奏可背板 */
-  intervalJitterS: 30,
-  /** 预警提前量（秒）：HUD 提示 + 音效在开打前给出 */
-  warnLeadS: 12,
-  /** 单场风暴持续（秒） */
-  durationS: 18,
-  /** 单场随机抽取的外圈受击格数（不足则全打） */
-  ringHits: 6,
-  /** 每个受击格承受的总伤害（在 durationS 内均匀结算） */
-  tileDamage: 3,
-} as const;
-
-// ---------------------------------------------------------------------------
-// 海盗
-// ---------------------------------------------------------------------------
-
-/** 海盗：从画布边缘外生成，直奔最近的外圈结构，贴上后持续拆。炮塔是唯一反制。 */
-export const PIRATE = {
-  /** 首波时刻（局内秒）；晚于首场风暴，给玩家攒金属的窗口 */
-  firstAtS: 240,
-  /** 后续波次平均间隔（秒） */
-  intervalS: 150,
-  /** 间隔抖动 ±（秒） */
-  intervalJitterS: 40,
-  /** 首波海盗数 */
-  countBase: 1,
-  /** 每隔几波 +1 海盗 */
-  growthEveryWaves: 2,
-  /** 单波海盗数上限 */
-  countMax: 4,
-  /** 单个海盗血量 */
-  hp: 24,
-  /** 移动速度（逻辑像素/秒） */
-  speedPxS: 60,
-  /** 贴上结构后的拆除输出（伤害/秒） */
-  dps: 4,
-} as const;
-
-/** 炮塔战斗参数。射程内锁最近海盗持续输出；12 dps × 2 秒击杀一名海盗。 */
-export const TURRET = {
-  /** 索敌与射击半径（逻辑像素） */
-  rangePx: 220,
-  /** 输出（伤害/秒） */
-  dps: 12,
-} as const;
-
-// ---------------------------------------------------------------------------
-// 拾荒小船与漂浮物
-// ---------------------------------------------------------------------------
-
-/** 玩家小船的运动参数（WASD 推力 + 水阻的简化模型：v' = v + a·dt − v·drag·dt）。 */
-export const BOAT = {
-  /** 最大航速（逻辑像素/秒） */
-  maxSpeedPxS: 230,
-  /** 按键推力加速度（逻辑像素/秒²） */
-  accelPxS2: 480,
-  /** 水阻系数（比例/秒），松键后约 1 秒滑停 */
-  dragPerS: 2.2,
-  /** 碰撞半径（逻辑像素） */
-  radiusPx: 14,
-  /** 捞取判定半径（逻辑像素）：空格/点按时以此半径吸取漂浮物 */
-  pickupRadiusPx: 40,
-} as const;
-
-/** 漂浮物：海面随机刷新、缓慢漂流、超时沉没。捞取是建材的快路线。 */
+/** 漂浮物：海面随机刷新、缓慢漂流、超时沉没（world/junk.ts 消费全部键）。 */
 export const SALVAGE = {
   /** 平均刷新间隔（秒） */
   spawnIntervalS: 2.5,
@@ -231,4 +67,205 @@ export const SALVAGE = {
     metal: [2, 4],
     rope: [1, 3],
   },
+} as const;
+
+// ═══════════════════════════════════════════════════════════════════
+// 二、文档镜像（与 sim 手工同步；运行时不 import 这一段）
+// ═══════════════════════════════════════════════════════════════════
+
+// ── 网格（镜像 sim/rules.ts 的 TILE / RAFT_ORIGIN）──────────────────
+
+/**
+ * 木筏建造网格。
+ * - 格坐标是**有符号整数** (gx, gy)，指挥中心固定在 (0, 0)；
+ *   开局 3×3 即 |gx| ≤ 1 且 |gy| ≤ 1。
+ * - origin 是 (0, 0) 格的**中心**（不是左上角）：
+ *   center = (originX + gx × sizePx, originY + gy × sizePx)，
+ *   换算函数见 sim/rules.ts 的 tileCenter / worldToTile。
+ * - 没有 gridW / gridH：网格无边界，木筏靠四邻接向外扩张；
+ *   Round 1 文档里的 15×11 / 48px / 左上角原点网格已废弃。
+ * - 小船活动海域另见 sim/rules.ts SEA_BOUNDS（木筏为中心 1920×1080）。
+ */
+export const TILE = {
+  /** 一格边长（逻辑像素）= sim/rules.ts 的 `TILE` */
+  sizePx: 64,
+  /** (0,0) 格中心 X = 画布正中（= sim 的 RAFT_ORIGIN.x） */
+  originX: CANVAS.w / 2,
+  /** (0,0) 格中心 Y = 画布正中（= sim 的 RAFT_ORIGIN.y） */
+  originY: CANVAS.h / 2,
+  /** 开局木筏边长（格）：正中 3×3，中心格为指挥中心 core */
+  startSize: 3,
+} as const;
+
+// ── 资源（镜像 sim/rules.ts）────────────────────────────────────────
+
+/** 六种资源：前四种是建材（捞/产），后两种是生存消耗品（产/耗）。 */
+export type ResourceId = "wood" | "plastic" | "metal" | "rope" | "water" | "food";
+
+/** 仓储上限（= sim RESOURCE_CAP）。入库超过上限的部分直接丢弃。 */
+export const RESOURCE_CAP: Record<ResourceId, number> = {
+  wood: 99,
+  plastic: 99,
+  metal: 99,
+  rope: 99,
+  water: 100,
+  food: 100,
+};
+
+/**
+ * 开局库存（= sim START_RESOURCES）。够铺一块地基 + 一台产出建筑；
+ * 金属 8 恰好等于一座炮塔的价钱。
+ */
+export const START_RESOURCES: Record<ResourceId, number> = {
+  wood: 14,
+  plastic: 8,
+  metal: 8,
+  rope: 8,
+  water: 45, // 3 岛民 × 0.12/s = 0.36/s → 约 125 秒耗尽
+  food: 45, // 3 岛民 × 0.10/s = 0.30/s → 约 150 秒耗尽
+};
+
+// ── 建筑（镜像 sim/rules.ts 的 BUILDINGS 表）────────────────────────
+
+/** 玩家可放置的建筑 id，顺序即 1–5 快捷键顺序（= sim HOTBAR）。 */
+export type PlaceableId = "floor" | "collector" | "purifier" | "fish" | "turret";
+
+/** 格子上可能站着的东西；`core` 是开局预置的指挥中心，玩家造不出来。 */
+export type BuildingId = PlaceableId | "core";
+
+/**
+ * @deprecated Round 1 曾把指挥中心叫 `hq`；运行时 id 是 `core`
+ * （sim/rules.ts BUILDINGS.core）。此别名只为旧文档兜底，别在新代码用。
+ */
+export type StructureId = BuildingId;
+
+/**
+ * 建造花费（= sim BUILDINGS[id].cost）。放置是原子的：先 canAfford
+ * 再整体扣，扣不动分文不动（sim/rules.ts pay/place）。
+ */
+export const BUILD_COST: Record<PlaceableId, Partial<Record<ResourceId, number>>> = {
+  floor: { wood: 4, rope: 2 }, // 地基：唯一可铺在海面的建筑，四向贴筏
+  collector: { wood: 6, plastic: 4 }, // 收集器：被动产木板/塑料
+  purifier: { plastic: 6, metal: 4 }, // 净水机：产淡水
+  fish: { wood: 5, rope: 4 }, // 钓鱼台：产食物
+  turret: { metal: 8, wood: 4 }, // 炮塔：唯一对海盗输出
+};
+
+/**
+ * 结构血量上限（= sim BUILDINGS[id].maxHp）。归零即拆除；
+ * core 归零不删格、只标记，由结算判定接手。
+ */
+export const STRUCTURE_HP: Record<BuildingId, number> = {
+  floor: 40,
+  collector: 45,
+  purifier: 45,
+  fish: 40,
+  turret: 65,
+  core: 220,
+};
+
+// ── 产出与消耗（镜像 sim/economy.ts）────────────────────────────────
+
+/**
+ * 建筑产出（= economy PRODUCTION）：**攒满 intervalS 出一次整数货**，
+ * 不是每帧小数流；残血建筑按 efficiencyOf 减速（50%–100%）。
+ */
+export const PRODUCTION: Partial<
+  Record<BuildingId, { intervalS: number; out: Partial<Record<ResourceId, number>> }>
+> = {
+  collector: { intervalS: 5, out: { wood: 1, plastic: 1 } },
+  purifier: { intervalS: 3, out: { water: 3 } }, // 1 水/秒
+  fish: { intervalS: 3, out: { food: 2 } }, // 0.67 食/秒
+};
+
+/** 人口（= economy CREW）：每座存活的非地基建筑多一个岛民（也多一张嘴）。 */
+export const CREW = { base: 3, perBuilding: 1 } as const;
+
+/** 每岛民每秒消耗（= economy UPKEEP）。 */
+export const UPKEEP = { water: 0.12, food: 0.1 } as const;
+
+/** 岛民自动维修（= economy REPAIR）：每 2 秒挑最残的一格，花 1 木板补 9 血。 */
+export const REPAIR = { intervalS: 2, hp: 9, cost: { wood: 1 } } as const;
+
+/**
+ * 断粮（= economy STARVE）：淡水或食物任一没足额供上，**同一条**计时器
+ * 就往上走；喂饱后按 recoverMul 倍速回落。计满 limitS = 结算。
+ */
+export const STARVE = { limitS: 25, recoverMul: 2, warnAt: 0.4 } as const;
+
+// ── 风暴与海盗（镜像 sim/threats.ts 与 entities/pirate.ts）──────────
+
+/**
+ * 风暴（= threats STORM）：预警 warnS 秒后对选定外圈格**一次性**结算
+ * damage；受击格数 = 1 + ⌊elapsed / extraEveryS⌋（上限 maxTargets）；
+ * 场间隔从 gapS 每场缩 gapDecayS，下限 gapMinS。
+ */
+export const STORM = {
+  firstS: 50,
+  gapS: 42,
+  gapMinS: 22,
+  gapDecayS: 3,
+  warnS: 4,
+  damage: 22, // 一场啃不掉满血地基（40），两场可以
+  extraEveryS: 90,
+  maxTargets: 5,
+} as const;
+
+/**
+ * 海盗波调度（= threats WAVE）：波内人数 min(6, 1 + ⌊波数 / 2⌋)，
+ * 同屏上限 maxAlive；同一波从相近方位来。
+ */
+export const WAVE = {
+  firstS: 55, // 晚于首场风暴，留出攒金属立炮塔的窗口
+  gapS: 46,
+  gapMinS: 22,
+  gapDecayS: 2.5,
+  spawnRadius: 760,
+  maxAlive: 8,
+} as const;
+
+/** 单个海盗（= entities/pirate.ts PIRATE）：速度/血量随波数增长，死后掉金属。 */
+export const PIRATE = {
+  baseSpeed: 58,
+  speedPerWave: 4,
+  maxSpeed: 130,
+  baseHp: 30,
+  hpPerWave: 8,
+  radius: 16,
+  /** 停船开砍的距离（格心到船心）；拆房 4.5 dps */
+  reach: 46,
+  dps: 4.5,
+  /** 被打死掉的金属 */
+  dropMetal: 2,
+  flashS: 0.12,
+} as const;
+
+/** 炮塔（= threats TURRET）：射程内锁最近海盗，单发制。DPS = 9 / 0.5 = 18。 */
+export const TURRET = {
+  /** 索敌与射击半径 = 5 格 = 320 逻辑像素 */
+  range: TILE.sizePx * 5,
+  damage: 9,
+  shotIntervalS: 0.5,
+} as const;
+
+// ── 拾荒小船（镜像 entities/skiff.ts 的 SKIFF）──────────────────────
+
+/**
+ * 小船手感（= entities/skiff.ts SKIFF）。WASD 给加速度，
+ * 水阻 v ×= e^(−drag·dt)，与帧长无关。
+ */
+export const SKIFF = {
+  /** 满推力加速度（逻辑像素/秒²） */
+  accel: 1150,
+  /** 水阻系数（速度每秒衰减到 e^−drag） */
+  drag: 2.6,
+  maxSpeed: 300,
+  /** 船体半径，画图与碰撞共用 */
+  radius: 15,
+  /** 捞取判定半径 = 一格半 = 96 逻辑像素 */
+  scoopRadius: TILE.sizePx * 1.5,
+  /** 两次捞取的最小间隔（秒） */
+  scoopCooldownS: 0.22,
+  /** 低于此速度直接判停 */
+  restSpeed: 3,
 } as const;

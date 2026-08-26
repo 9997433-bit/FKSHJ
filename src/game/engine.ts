@@ -27,6 +27,8 @@ export type SceneListener = (next: SceneId, prev: SceneId) => void;
  *   contextLost 跳过无效绘制。
  * - 场景切换统一走 scene setter / setScene：同值幂等，不合法迁移
  *   console.warn 后仍放行（多代理协作下宁可吵闹也不软锁死游戏）。
+ * - CANVAS 是 data/constants.ts 里「被运行时消费」的一段（非文档镜像，
+ *   见其头注释）：改 w/h/maxDpr 就是改所有人的坐标系，动前先吱声。
  */
 export class Engine {
   readonly canvas: HTMLCanvasElement;
