@@ -44,3 +44,14 @@
 | opus-core | local | `bc-f33f8ea2-5c35-50b7-9683-9baff7d16890` | 已完成（落水失败 + 换道碰撞已收编） |
 | gpt-test | local | `bc-85d38b55-2e52-5bdc-b07f-833077a49cce` | 已完成（18 测已收编） |
 | gpt-probe | local | `bc-dc2e5c29-59d2-5a8c-81db-9e1a8e89959d` | 已完成（长局空关卡已记录，脚本已收编） |
+
+## Round 3 派发记录
+
+| 角色 | 环境 | Agent ID | 状态 |
+| --- | --- | --- | --- |
+| fable-arch | cloud | `bc-99bd9075-210f-5450-839a-ef6ba23a43d5` | 运行中 |
+| fable-sota | cloud | `bc-0de9872a-cdc0-50c1-b024-615242ba7a3c` | 运行中 |
+| opus-content | cloud | `bc-b17b23ab-9bd3-5bc4-b392-8e2f17747b8a` | 运行中 |
+| opus-core | local | `bc-e130416a-13a5-5d7d-89ad-7c311efebd6e` | 运行中 |
+| gpt-test | local | `bc-a7fc467f-8428-5722-8dc9-0a2249e9e92f` | 运行中 |
+| gpt-probe | local | `bc-40987e5d-50cd-5073-92de-b4194b614be2` | 运行中 |
