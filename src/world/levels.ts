@@ -28,6 +28,8 @@ export type WorldStuff = {
   boosters: Booster[];
   /** 手工拼装的世界（单测）没有游标，它们只是永远不再生长。 */
   gen?: GenCursor;
+  /** 上一次扫尾的裁切 z；只用于节流，不参与生成。 */
+  recycledTo?: number;
 };
 
 /** 每个主题段的生成参数表：密度、车道跨度、障碍配比。 */
@@ -269,6 +271,65 @@ export function generateWorld(seed: number, aheadTo: number = STREAM_AHEAD): Wor
     },
   };
   return generateAhead(world, aheadTo);
+}
+
+/**
+ * 玩家身后保留的纵深（世界单位）。
+ *
+ * 判定窗口最深只回看 `FEEL.hazardZMin`（-20），绘制在 `rel < 0` 处就已剔除，
+ * 所以身后 400 之外的行对玩法和画面都不再有任何影响，可以整行丢掉。
+ * 余量取到 400 而不是贴着判定窗口，是给未来更长的回看窗口留位置。
+ */
+export const RECYCLE_BEHIND = 400;
+
+/** 两次扫尾之间至少要前进的距离：扫尾是 O(实体数)，不必每帧做。 */
+export const RECYCLE_STRIDE = 200;
+
+/** 就地压实：保留 z ≥ cutoff 的元素（保持原顺序），返回丢弃个数。 */
+function compact<T extends { z: number }>(list: T[], cutoff: number): number {
+  let kept = 0;
+  for (let i = 0; i < list.length; i++) {
+    const item = list[i];
+    if (item.z < cutoff) continue;
+    list[kept] = item;
+    kept += 1;
+  }
+  const dropped = list.length - kept;
+  if (dropped > 0) list.length = kept;
+  return dropped;
+}
+
+/**
+ * 丢掉 `cutoff` 之前的实体，返回丢弃总数。
+ *
+ * 只动三个数组，**不碰 `gen`**：已经掷过的骰子留在 `pickState` / `hazState` 里，
+ * 下一行落在哪由 `pickZ` / `hazZ` 决定。于是「回收过的世界」与「一直没回收的
+ * 世界」之后续生出的内容逐位相同 —— `generateAhead` 的确定性不受扫尾影响。
+ */
+export function dropBehind(world: WorldStuff, cutoff: number): number {
+  return (
+    compact(world.pickups, cutoff) +
+    compact(world.hazards, cutoff) +
+    compact(world.boosters, cutoff)
+  );
+}
+
+/**
+ * 按玩家当前距离做一次扫尾（每帧调用都安全，内部按 `RECYCLE_STRIDE` 节流）。
+ *
+ * 有了它，实体数组的长度只跟「相机前后这一段」有关，跑一万米和跑十米一样便宜；
+ * 没有它，`session` 每帧的收集 / 碰撞 / 绘制遍历都会随里程线性变慢。
+ */
+export function recycleBehind(
+  world: WorldStuff,
+  distance: number,
+  behind: number = RECYCLE_BEHIND,
+): number {
+  const cutoff = distance - behind;
+  const last = world.recycledTo;
+  if (last !== undefined && cutoff < last + RECYCLE_STRIDE) return 0;
+  world.recycledTo = cutoff;
+  return cutoff > 0 ? dropBehind(world, cutoff) : 0;
 }
 
 /**

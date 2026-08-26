@@ -13,6 +13,7 @@ import { applyBoost, applyHit, comboBonus, stepSpeed } from "./game/physics";
 import {
   generateAhead,
   generateWorld,
+  recycleBehind,
   seedWorld,
   STREAM_AHEAD,
   themeCycleAt,
@@ -88,6 +89,8 @@ export class Session {
     this.score += dz * SCORE.distMul;
     this.player.z = this.distance;
     generateAhead(this.world, this.distance + STREAM_AHEAD);
+    // 前面续生、后面扫尾：实体数组只覆盖相机前后这一段，长局不会越跑越重
+    recycleBehind(this.world, this.distance);
     this.comboT -= dt;
     if (this.comboT <= 0) this.combo = 0;
 
