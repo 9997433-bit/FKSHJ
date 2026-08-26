@@ -30,7 +30,7 @@
 | 架构引擎 | fable | claude-fable-5-thinking-xhigh | cloud | `bc-c3841b55-6495-55ed-b91f-0bfe541a404e` | 已完成（已摘并 engine/loop/constants/ARCHITECTURE） |
 | SOTA UX | fable | claude-fable-5-thinking-xhigh | cloud | `bc-680fc86e-e1a4-5034-8aea-9f8e61d7dd17` | 已完成（已摘并 theme/menus/hud/SOTA_BAR） |
 | 内容特效 | opus-fast | claude-opus-5-thinking-high-fast | cloud | `bc-287bff11-630f-5105-9ac1-e75ab4e735e8` | 运行中 |
-| 核心玩法 | opus-fast | claude-opus-5-thinking-high-fast | local | `bc-f3586f19-030d-5668-9bb1-afa8ace61564` | 运行中 |
+| 核心玩法 | opus-fast | claude-opus-5-thinking-high-fast | local | `bc-f3586f19-030d-5668-9bb1-afa8ace61564` | 已完成（物理/镜头/滑道已收编，session 已接 hop） |
 | 单测覆盖 | gpt-sol | gpt-5.6-sol-xhigh-fast | local | `bc-9fcce4c8-069a-5523-9d38-a0c8200a928f` | 已完成（14 测全绿，已收编测试文件） |
 | 探针基准 | gpt-sol | gpt-5.6-sol-xhigh-fast | local | `bc-aaa77fd6-0569-5a4c-948c-c5252e446880` | 已完成（bench/smoke/probe 已收编） |
 

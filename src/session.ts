@@ -63,6 +63,7 @@ export class Session {
     if (steer) this.player.trySwitch(steer);
     if (wantJump && this.player.tryJump()) this.sfx.jump();
     this.player.step(dt);
+    if (this.player.consumeHopStart()) this.sfx.jump();
     const spd = stepSpeed(this.player.motion, dt);
     const dz = spd * dt * 0.2;
     this.distance += dz;
@@ -206,7 +207,7 @@ export class Session {
     drawables.push({
       z: 80,
       draw: () => {
-        const jumpLift = this.player.airborne ? 22 : 0;
+        const jumpLift = this.player.hopLift();
         const pr = project(this.player.laneX, 80);
         ctx.save();
         ctx.translate(pr.x, pr.y - jumpLift * pr.s);
