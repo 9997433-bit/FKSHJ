@@ -27,7 +27,7 @@
 
 | 角色 | 简称 | 实际 slug | 环境 | Agent ID | 状态 |
 | --- | --- | --- | --- | --- | --- |
-| 架构引擎 | fable | claude-fable-5-thinking-xhigh | cloud | `bc-c3841b55-6495-55ed-b91f-0bfe541a404e` | 运行中 |
+| 架构引擎 | fable | claude-fable-5-thinking-xhigh | cloud | `bc-c3841b55-6495-55ed-b91f-0bfe541a404e` | 已完成（已摘并 engine/loop/constants/ARCHITECTURE） |
 | SOTA UX | fable | claude-fable-5-thinking-xhigh | cloud | `bc-680fc86e-e1a4-5034-8aea-9f8e61d7dd17` | 运行中 |
 | 内容特效 | opus-fast | claude-opus-5-thinking-high-fast | cloud | `bc-287bff11-630f-5105-9ac1-e75ab4e735e8` | 运行中 |
 | 核心玩法 | opus-fast | claude-opus-5-thinking-high-fast | local | `bc-f3586f19-030d-5668-9bb1-afa8ace61564` | 运行中 |
