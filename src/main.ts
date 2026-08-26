@@ -5,6 +5,7 @@ import { Sfx } from "./fx/audio";
 import { stepParticles } from "./fx/particles";
 import { Session } from "./session";
 import { renderOverlay } from "./ui/menus";
+import { resetHud } from "./ui/hud";
 
 const canvas = document.querySelector<HTMLCanvasElement>("#game");
 const overlayEl = document.querySelector<HTMLElement>("#overlay");
@@ -34,6 +35,7 @@ function showTitle(): void {
 
 function startRun(): void {
   sfx.unlock();
+  resetHud();
   session = new Session(sfx);
   engine.scene = "playing";
   renderOverlay(overlay, "hidden", { hiScore: Session.hiScore() });

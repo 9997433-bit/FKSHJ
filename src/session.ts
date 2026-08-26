@@ -273,6 +273,8 @@ export class Session {
       hp: this.player.hp,
       theme,
       speed: this.player.motion.speed,
+      time: this.time,
+      offChute01: this.player.offChute01,
     });
   }
 }
