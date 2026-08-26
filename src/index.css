@@ -51,6 +51,7 @@ body,
 
 .overlay .panel {
   pointer-events: auto;
+  position: relative;
   width: min(560px, 92vw);
   max-height: 92vh;
   overflow-y: auto;
@@ -244,6 +245,33 @@ body,
 .overlay button.ghost:hover {
   border-color: rgba(255, 255, 255, 0.5);
   background: rgba(255, 255, 255, 0.06);
+}
+
+/* 面板右上角静音按钮（面板打开时 M 键同步切换） */
+.overlay button.mute {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  margin: 0;
+  min-width: 46px;
+  min-height: 46px;
+  padding: 6px 14px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  color: var(--ink);
+  font-size: 13px;
+  box-shadow: none;
+}
+
+.overlay button.mute:hover {
+  transform: none;
+  background: rgba(255, 255, 255, 0.14);
+  border-color: rgba(255, 255, 255, 0.45);
+}
+
+.overlay button.mute[aria-pressed="true"] {
+  color: var(--sun);
+  border-color: rgba(255, 209, 102, 0.6);
 }
 
 /* 内联帮助面板（替代 alert） */
