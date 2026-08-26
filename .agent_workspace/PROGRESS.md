@@ -34,3 +34,14 @@
 | opus-core | local | `bc-8c47b3ae-d84a-5025-a678-bd7a041b4b7e` | 已交卷 |
 | gpt-test | local | `bc-4d22ee57-eafd-55d3-9b3c-059f72ddf5d8` | 已交卷 |
 | gpt-probe | local | `bc-20a977e8-e26f-53ff-a16c-890f40fe8b3f` | 已交卷 |
+
+## Round 3 派发记录
+
+| 角色 | 环境 | Agent ID | 状态 |
+| --- | --- | --- | --- |
+| fable-arch | cloud | `bc-254b0b07-a5a1-53ae-820d-e18dff3666dd` | 进行中 |
+| fable-sota | cloud | `bc-8a82346a-7432-59cb-b4ef-73b47b867453` | 进行中 |
+| opus-content | cloud | `bc-38531cf3-2537-51f4-bd67-178c8f004638` | 进行中 |
+| opus-core | local | `bc-9c1a6d9a-3d86-536e-a7ed-fc5208d181f0` | 进行中 |
+| gpt-test | local | `bc-cd7870c0-974d-55bb-87f4-68d0f9a3ef61` | 进行中 |
+| gpt-probe | local | `bc-5bf5120d-9eb0-5217-b60e-f050f8dedffb` | 进行中 |
