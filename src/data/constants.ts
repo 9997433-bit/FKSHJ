@@ -84,7 +84,7 @@ export const SPEED = {
   boostMul: 1.6,
   /** 加速带持续 1.2s（§4.3 表） */
   boostMs: 1200,
-  /** 撞滑道边缘掉速系数（§4.2；边缘碰撞尚未接入，见 ARCHITECTURE.md） */
+  /** 撞滑道边缘掉速系数（§4.2）；player.scrapeWall → physics.applyWallScrape 消费 */
   wallPenalty: 0.82,
 } as const;
 
@@ -117,15 +117,16 @@ export const GEN = {
   coinGap: 90,
   /** 障碍纵向间隔 */
   obstacleGap: 160,
-  /** 相机可视纵深（世界单位）；levels.ts 以 horizon*3 预生成实体 */
+  /** 相机可视纵深（世界单位）。levels.ts 的 STREAM_AHEAD = horizon×3：
+   *  开局预生成到该纵深，局中每帧流式续生到玩家前方同样距离（无限世界） */
   horizon: 2400,
 } as const;
 
 /* ========================================================================
  * 镜头 / 2.5D 投影（GAME_SPEC §6 视觉底线）
  *
- * 现状（Round 2）：src/game/camera.ts 仍以同值内联常量工作（opus-core
- * 所有权，本轮不越权改写）。本组是迁移目标：camera.ts 改读本组时数值
+ * 现状（Round 3 复核）：src/game/camera.ts 仍以同值内联常量工作
+ * （opus-core 所有权）。本组是迁移目标：camera.ts 改读本组时数值
  * 完全一致，接入是行为无损的；接入后必须删除模块内副本，避免双份真相。
  * far 裁剪没有单独字段——继续用 GEN.horizon，保持单一来源。
  * session.draw 已直接消费 entityCullZ。
@@ -164,11 +165,15 @@ export const CAMERA = {
 /* ========================================================================
  * 手感 / 判定（速度趋近、carve 掉速、判定窗口、反馈强度）
  *
- * 分三段：
+ * 分三段（Round 3 复核，接线状态见各字段注释）：
  * 1) 速度模型 —— src/game/physics.ts 同值内联（opus-core），迁移目标；
  * 2) 玩家操控 —— src/entities/player.ts 同值内联（opus-core），迁移目标；
- * 3) 会话判定 —— src/session.ts 已接入本组（本轮完成）。
- * 迁移规则同 CAMERA：数值一致、行为无损、接入后删内联副本。
+ * 3) 会话判定 —— src/session.ts 已接入本组（Round 2 完成）。
+ * 迁移规则同 CAMERA：数值一致、行为无损、接入后删内联副本，且必须
+ * 与消费方同一提交完成，禁止先在这里堆无人消费的镜像值。
+ * Round 2 的甩出滑道玩法又在 physics.ts 添了一批内联常量
+ * （CHUTE / SLIP_* / RIM_LANE / FALL_TIME / FALL_RECOVER），按同一规则
+ * 留在持有者手里，等迁移时一并入组——本表刻意不预建镜像。
  * ===================================================================== */
 export const FEEL = {
   /* —— 1) 速度模型（physics.ts）—— */
