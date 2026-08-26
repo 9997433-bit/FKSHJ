@@ -1,99 +1,25 @@
 import { Engine } from "./game/engine";
-import { createInput } from "./game/input";
 import { createLoop } from "./game/loop";
-import { Sfx } from "./fx/audio";
-import { stepParticles } from "./fx/particles";
 import { Session } from "./session";
-import { renderOverlay } from "./ui/menus";
-import { resetHud } from "./ui/hud";
 
 const canvas = document.querySelector<HTMLCanvasElement>("#game");
-const overlayEl = document.querySelector<HTMLElement>("#overlay");
-if (!canvas || !overlayEl) throw new Error("DOM 节点缺失");
-const overlay = overlayEl;
+const overlay = document.querySelector<HTMLElement>("#overlay");
+if (!canvas || !overlay) throw new Error("DOM 节点缺失");
 
 const engine = new Engine(canvas);
-const input = createInput(canvas);
-const sfx = new Sfx();
-let session = new Session(sfx);
+const session = new Session();
+engine.scene = "title";
 
-function audioControl() {
-  return {
-    muted: sfx.isMuted(),
-    onToggle: () => sfx.toggleMute(),
-  };
-}
-
-function showTitle(): void {
-  input.clearQueued();
-  engine.scene = "title";
-  renderOverlay(overlay, "title", {
-    hiScore: Session.hiScore(),
-    onStart: startRun,
-    audio: audioControl(),
-  });
-}
-
-function startRun(): void {
-  input.clearQueued();
-  sfx.unlock();
-  resetHud();
-  session = new Session(sfx);
-  engine.scene = "playing";
-  renderOverlay(overlay, "hidden", { hiScore: Session.hiScore() });
-}
-
-function pause(): void {
-  input.clearQueued();
-  engine.scene = "paused";
-  renderOverlay(overlay, "paused", {
-    hiScore: Session.hiScore(),
-    onResume: () => {
-      engine.scene = "playing";
-      renderOverlay(overlay, "hidden", { hiScore: Session.hiScore() });
-    },
-    onTitle: showTitle,
-    audio: audioControl(),
-  });
-}
-
-function finish(): void {
-  input.clearQueued();
-  const r = session.result();
-  engine.scene = "gameover";
-  renderOverlay(overlay, "gameover", {
-    hiScore: r.hiScore,
-    score: r.score,
-    distance: r.distance,
-    coins: r.coins,
-    isNew: r.isNew,
-    endedBy: r.fallen ? "washout" : "deflated",
-    onRetry: startRun,
-    onTitle: showTitle,
-    audio: audioControl(),
-  });
-}
+overlay.innerHTML = `
+  <div class="panel" role="dialog" aria-label="标题">
+    <h1>疯狂水世界</h1>
+    <div class="tag">海上末日 · 拾荒建造</div>
+    <p class="subtitle">陆地没了，木筏还在。老大，先活下来。</p>
+    <p class="hint">Round 1 脚手架：子代理正在补玩法。</p>
+  </div>`;
 
 const loop = createLoop((dt) => {
-  if (engine.scene === "playing") {
-    if (input.consumePause()) {
-      pause();
-    } else {
-      const steer: -1 | 0 | 1 = input.left ? -1 : input.right ? 1 : 0;
-      session.update(dt, steer, input.consumeJump());
-      stepParticles(session.particles, dt);
-      if (session.over) finish();
-    }
-  } else if (engine.scene === "paused" && input.consumePause()) {
-    engine.scene = "playing";
-    renderOverlay(overlay, "hidden", { hiScore: Session.hiScore() });
-  }
-
+  session.update(dt);
   session.draw(engine.ctx);
-  if (engine.scene === "title") {
-    // 标题下仍画一局预览水面
-  }
 });
-
-showTitle();
 loop.start();

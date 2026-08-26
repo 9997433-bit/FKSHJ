@@ -2,7 +2,7 @@
   "name": "crazy-water-world",
   "version": "0.1.0",
   "private": true,
-  "description": "疯狂水世界 — 水上乐园滑道街机游戏",
+  "description": "疯狂水世界 — 海上末日生存浏览器原型",
   "type": "module",
   "scripts": {
     "dev": "vite",
