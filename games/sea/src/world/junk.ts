@@ -15,12 +15,19 @@
  * 水下影、吃水泡沫、随浪摇摆、沉没淡出。物品目录 `data/catalog.ts` 到位后，
  * `registerItemArt` 登记的新道具在这里不用改一行就能漂起来：
  * `drawJunk` 接受任意 id，没登记的画成「未知包裹」。
+ *
+ * **换装**（`JUNK_LOOK_TABLE`）：新刷的东西按 `JUNK_LOOKS.chance` 穿一件
+ * 目录物的外观——海面上因此看得见油布、空油桶、咸海带，而不是四种建材
+ * 循环播放。换的只有外观：`Junk.kind` 仍限四种建材、刷新权重仍是
+ * `SALVAGE.weights`、产出仍按 `SALVAGE.yields` 掷、入库仍走 `gain()` 对
+ * Resources——**没有第二套掉落经济**。掷骰走本片海自己的 LCG，
+ * 不碰 session.rng。
  */
 
-import { CANVAS, SALVAGE } from "../data/constants";
+import { CANVAS, JUNK_LOOKS, SALVAGE } from "../data/constants";
 import { SKIFF } from "../entities/skiff";
 import { RAFT_ORIGIN, TILE } from "../sim/rules";
-import { drawItemBody, itemArt } from "./items";
+import { drawItemBody, itemArt, itemLabel } from "./items";
 import { mixHex, swayAt, withAlpha } from "./ocean";
 
 /** 能捞到的四种材料（`SALVAGE.weights` 的键，也是 ResourceId 的子集）。 */
@@ -115,6 +122,14 @@ export function junkArtId(j: Pick<JunkView, "kind" | "look">): string {
   return j.look ?? j.kind;
 }
 
+/**
+ * 这件东西该叫什么：换了装就报外观的名字（「空油桶」），没换就报建材。
+ * 飘字与图鉴用——玩家看见什么就该读到什么。
+ */
+export function junkLabel(j: Pick<JunkView, "kind" | "look">): string {
+  return itemLabel(junkArtId(j));
+}
+
 export type JunkField = {
   items: Junk[];
   /** LCG 状态：这片海之后的所有随机都从这里长出来 */
@@ -135,9 +150,26 @@ export type JunkBounds = { minX: number; minY: number; maxX: number; maxY: numbe
 
 export const DEFAULT_BOUNDS: JunkBounds = { minX: 0, minY: 0, maxX: CANVAS.w, maxY: CANVAS.h };
 
+/**
+ * 下一个 [0, 1) 随机数。状态是一条 32 位 LCG（可持久化、同种子同海面），
+ * **但输出要先打散**。
+ *
+ * 裸 LCG 的相邻输出落在一张很稀的格子上：一件漂浮物固定消耗十来次抽取，
+ * 于是「每件的第 1 次抽取」之间就成了一条固定步长的子序列，相关性肉眼
+ * 可见——开局连着刷出来的换装会挤在同一族里（一片海先来三把扳手），
+ * 四种建材的比例也会稳定偏离 `SALVAGE.weights`（绳索多五成）。
+ * 状态照旧只走 LCG（period 2^32 不变，存档里那个数还是它），
+ * 只把**读出来的那一下**过一遍雪崩混淆。
+ */
 function nextRand(field: JunkField): number {
   field.rng = (field.rng * 1664525 + 1013904223) >>> 0;
-  return field.rng / 0xffffffff;
+  let h = field.rng;
+  h ^= h >>> 16;
+  h = Math.imul(h, 0x7feb352d);
+  h ^= h >>> 15;
+  h = Math.imul(h, 0x846ca68b);
+  h ^= h >>> 16;
+  return (h >>> 0) / 0x1_0000_0000;
 }
 
 function range(field: JunkField, lo: number, hi: number): number {
@@ -166,6 +198,104 @@ export function rollJunkYield(field: JunkField, kind: JunkKind): number {
   return lo + Math.floor(nextRand(field) * (hi - lo + 1));
 }
 
+/* ------------------------------------------------------------------ *
+ * 换装：海面上看得见目录里的东西
+ * ------------------------------------------------------------------ */
+
+/**
+ * 一条换装：**看见的**外观 id 与**捞到的**建材。
+ *
+ * 一件 look 只配一种 kind，映射写死在下面这张表里，所以同一个种子
+ * 跑出来的海面逐件相同——「那只桶捞上来是金属」不会这局是金属、
+ * 下局变木板。
+ */
+export type JunkLook = {
+  /** `world/items.ts` 登记过的外观 id（目录物或海面专有的漂浮物） */
+  readonly look: string;
+  /** 入库的建材；`Junk.kind` 只认这四种 */
+  readonly kind: JunkKind;
+  /** 同 kind 内的抽取权重（归一化前），不给按 1 */
+  readonly weight?: number;
+};
+
+/**
+ * 换装表 —— 内容，不是平衡数。唯一的平衡旋钮是 `JUNK_LOOKS.chance`
+ * （穿不穿），住 `data/constants.ts`。
+ *
+ * 三条硬规矩：
+ *
+ * 1. **不另开掉落经济**：换装只改「长什么样」。刷新权重仍是
+ *    `SALVAGE.weights`（先按权重掷 kind，再在该 kind 名下挑一件穿），
+ *    产出仍是 `SALVAGE.yields[kind]`，入库仍是 `gain()` 对 Resources。
+ *    玩家看见的是一只空油桶，捞到手的是金属。
+ * 2. **四种建材各留至少一件**，否则掷中的那一种永远穿不上，
+ *    35% 的换装率会悄悄缩水。
+ * 3. 映射要说得通：捞上来拆出来的是什么，就记什么。
+ */
+export const JUNK_LOOK_TABLE: readonly JunkLook[] = [
+  // 木板：漂着的海带垫子——晒干了当引火与铺料，记一份木料
+  { look: "kelp", kind: "wood" },
+  // 塑料：涂胶帆布剪开就是补漏的料；净水囊本身就是个塑料兜子
+  { look: "tarp", kind: "plastic", weight: 2 },
+  { look: "freshWater", kind: "plastic" },
+  // 金属：桶身、钩子、扳手，敲开都是铁
+  { look: "barrel", kind: "metal", weight: 2 },
+  { look: "hook", kind: "metal" },
+  { look: "wrench", kind: "metal" },
+  // 绳索：网衣拆股就是绳；玻璃球值钱的是外面罩的那张网兜
+  { look: "netScrap", kind: "rope", weight: 2 },
+  { look: "glassFloat", kind: "rope" },
+];
+
+const LOOKS_BY_KIND: Record<JunkKind, JunkLook[]> = { wood: [], plastic: [], metal: [], rope: [] };
+const LOOK_KIND = new Map<string, JunkKind>();
+for (const entry of JUNK_LOOK_TABLE) {
+  LOOKS_BY_KIND[entry.kind].push(entry);
+  LOOK_KIND.set(entry.look, entry.kind);
+}
+
+/** 换装表里全部外观 id，按表序。图鉴与单测拿它枚举。 */
+export const JUNK_LOOK_IDS: readonly string[] = JUNK_LOOK_TABLE.map((e) => e.look);
+
+/**
+ * 这件外观捞上来入哪种建材；表外的 id 返回 null。
+ *
+ * `spawnJunk({ look })` 靠它反查 kind——指定了外观就不必再指定材料，
+ * 免得两边写岔了造出「看着是油桶、入库是木板」的东西。
+ */
+export function lookKind(look: string | undefined): JunkKind | null {
+  return (look && LOOK_KIND.get(look)) || null;
+}
+
+/** 这种建材名下能穿的外观（按表序）。 */
+export function looksOf(kind: JunkKind): readonly string[] {
+  return LOOKS_BY_KIND[kind].map((e) => e.look);
+}
+
+/**
+ * 掷这件东西穿不穿目录外观：`JUNK_LOOKS.chance` 的概率穿一件，
+ * 否则返回 undefined（就画成建材本身）。
+ *
+ * 随机走 `JunkField` 自己的 LCG，**不碰 session.rng**——威胁与请求板
+ * 的随机序列不受影响。抽取次数恒为 2（穿不穿判定 + 选品），中不中都
+ * 一样，所以换装不会把后面漂流参数的序列错开。
+ */
+export function rollJunkLook(field: JunkField, kind: JunkKind): string | undefined {
+  const dress = nextRand(field);
+  const pick = nextRand(field);
+  const pool = LOOKS_BY_KIND[kind];
+  if (pool.length === 0 || dress >= JUNK_LOOKS.chance) return undefined;
+
+  let total = 0;
+  for (const e of pool) total += e.weight ?? 1;
+  let r = pick * total;
+  for (const e of pool) {
+    r -= e.weight ?? 1;
+    if (r <= 0) return e.look;
+  }
+  return pool[pool.length - 1].look;
+}
+
 export type SpawnOpts = {
   kind?: JunkKind;
   x?: number;
@@ -174,8 +304,13 @@ export type SpawnOpts = {
   drift?: number;
   /** 活动海域；默认可见画布 */
   bounds?: JunkBounds;
-  /** 见 `JunkView.look`：画成目录里另一件东西，半径也跟着那件走 */
+  /**
+   * 见 `JunkView.look`：画成目录里另一件东西，半径也跟着那件走。
+   * 指定了外观就不用再指定 `kind`——换装表反查得到（`lookKind`）。
+   */
   look?: string;
+  /** `false` 关掉换装掷骰：这件必定素面（单测要一件干净的建材时用） */
+  dress?: boolean;
 };
 
 /**
@@ -197,9 +332,13 @@ export function makeJunkField(seed: number, prefill = 5): JunkField {
  * 最多重采样 6 次——采不到就按最后一次放，绝不在这里死循环。
  */
 export function spawnJunk(field: JunkField, opts: SpawnOpts = {}): Junk {
-  const kind = opts.kind ?? rollJunkKind(field);
+  // 材料先定：指定了 kind 就听它的，只给了 look 就按换装表反查，
+  // 都没给才按 `SALVAGE.weights` 掷——刷新权重一分没改
+  const kind = opts.kind ?? lookKind(opts.look) ?? rollJunkKind(field);
+  // 再定外观：显式给的优先，否则掷一次换装（`JUNK_LOOKS.chance`）
+  const look = opts.look ?? (opts.dress === false ? undefined : rollJunkLook(field, kind));
   // 半径读外观表：换了 look 的东西，判定圈跟着它真正的个头走
-  const art = itemArt(opts.look ?? kind);
+  const art = itemArt(look ?? kind);
   const drift = opts.drift ?? SALVAGE.driftPxS;
   const b = opts.bounds ?? DEFAULT_BOUNDS;
 
@@ -228,7 +367,7 @@ export function spawnJunk(field: JunkField, opts: SpawnOpts = {}): Junk {
     age: 0,
     phase: range(field, 0, Math.PI * 2),
     taken: false,
-    ...(opts.look ? { look: opts.look } : {}),
+    ...(look ? { look } : {}),
   };
   field.items.push(j);
   return j;
