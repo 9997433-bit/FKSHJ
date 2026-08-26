@@ -1,6 +1,6 @@
 import { CANVAS } from "../data/constants";
 
-/** 场景 ID（GAME_SPEC §7：boot → title → playing ⇄ paused → gameover → title） */
+/** 场景 ID（GAME_SPEC §5：boot → title → playing ⇄ paused → gameover → title） */
 export type SceneId = "boot" | "title" | "playing" | "paused" | "gameover";
 
 /** 合法场景迁移表；键 = 当前场景，值 = 允许进入的下一场景 */
@@ -81,7 +81,7 @@ export class Engine {
     const prev = this.sceneValue;
     if (next === prev) return false;
     if (!SCENE_FLOW[prev].includes(next)) {
-      console.warn(`[engine] 非常规场景迁移 ${prev} → ${next}（规格 §7）`);
+      console.warn(`[engine] 非常规场景迁移 ${prev} → ${next}（规格 §5）`);
     }
     this.sceneValue = next;
     for (const fn of this.sceneListeners) fn(next, prev);
