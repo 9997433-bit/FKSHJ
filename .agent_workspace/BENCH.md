@@ -72,3 +72,25 @@ checksum 为 `925273169`。
 基准汇总为 3/3 通过，workload checksum 为 `925273169`。确定性探针结果为
 `ok: true`、`status: "deterministic"`，probe hash 为 `728b59b5`（300 tick、
 9 个磁带事件、2,389 bytes）。Smoke 检查 16/16 个必需文件并通过。
+
+## Round 1 gpt-probe 当前实测
+
+2026-08-26 UTC 在 commit `ffca49b9fc29d19b3be41314222fc9e49b4c454e`
+上使用 Node `v22.14.0`、4 vCPU 和默认预算倍数 `1` 实测。目标游戏目录为
+`games/sea/`；因 npm scripts 定义在仓库根 `package.json`，三个命令均从仓库根
+`/workspace` 执行。
+
+| 命令 / workload | median | p95 | 预算 | 结论 |
+| --- | ---: | ---: | ---: | --- |
+| `npm run probe` | — | — | — | 确定性通过，hash `728b59b5` |
+| raft-expansion | 9.148 ms | 9.634 ms | 120 ms | 通过 |
+| debris-generation | 158.985 ms | 163.982 ms | 225 ms | 通过 |
+| production-consumption-step | 7.879 ms | 7.928 ms | 80 ms | 通过 |
+| `npm run smoke` | — | — | — | 17 个源文件通过（`dist/` 为构建产物，不列入必需） |
+
+`npm run bench` 汇总为 3/3 通过，workload checksum 为 `925273169`；对应吞吐量
+分别为 2,674,637、75,479、76,153,304 ops/s。探针使用 300 tick、9 个输入磁带
+事件，轨迹为 2,389 bytes，结果为 `ok: true`、`status: "deterministic"`。
+
+Smoke 同时验证 hub 入口 `index.html` 与 Sea 源入口 `games/sea/index.html`。
+`dist/` 是构建产物、不列入 smoke 必需项。检查本身未运行 Vite。
