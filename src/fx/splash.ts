@@ -13,10 +13,10 @@ export function splash(
 ): void {
   const s = Math.max(0, Math.min(1, speed01));
   spawnBurst(list, x, y, color, {
-    count: 5 + Math.round(s * 13),
+    count: 3 + Math.round(s * 7),
     speed: 70 + s * 190,
     radius: 2.4 + s * 2.6,
-    life: 0.34 + s * 0.24,
+    life: 0.3 + s * 0.2,
     spread: Math.PI * 0.9,
     angle: -Math.PI / 2,
     grav: 260,
@@ -33,7 +33,7 @@ export function bigSplash(
 ): void {
   const s = Math.max(0, Math.min(1, speed01));
   spawnBurst(list, x, y, color, {
-    count: 16 + Math.round(s * 14),
+    count: 14 + Math.round(s * 10),
     speed: 130 + s * 220,
     radius: 3 + s * 3,
     life: 0.5 + s * 0.3,

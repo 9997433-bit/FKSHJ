@@ -39,7 +39,7 @@ export function drawPickup(
 
 function drawCoin(ctx: CanvasRenderingContext2D, phase: number): void {
   const spin = Math.cos(phase * 3.4);
-  const w = Math.max(1.6, Math.abs(spin) * 9);
+  const w = 9 * (0.4 + Math.abs(spin) * 0.6);
   ctx.fillStyle = "#c98a1e";
   ctx.beginPath();
   ctx.ellipse(0, 1.5, w, 9, 0, 0, Math.PI * 2);
@@ -48,7 +48,7 @@ function drawCoin(ctx: CanvasRenderingContext2D, phase: number): void {
   ctx.beginPath();
   ctx.ellipse(0, 0, w, 9, 0, 0, Math.PI * 2);
   ctx.fill();
-  if (w > 4) {
+  if (w > 5) {
     ctx.fillStyle = "#fff2c4";
     ctx.beginPath();
     ctx.ellipse(-w * 0.25, -2.5, w * 0.3, 3.4, 0, 0, Math.PI * 2);
