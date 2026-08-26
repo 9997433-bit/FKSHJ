@@ -8,10 +8,11 @@
  *
  * 三层结构，越往下越自由：
  *
- * 1. **剪影库** `SILHOUETTES`：十几种一眼分得开的外形（长木条 / 瓶子 /
+ * 1. **剪影库** `SILHOUETTES`：二十来种一眼分得开的外形（长木条 / 瓶子 /
  *    撕裂铁皮 / 绳卷 / 板条箱 / 油桶 / 浮标 / 轮胎 / 麻袋 / 提罐 / 齿轮 /
- *    海草 / 玻璃碴 / 宝箱 / 未知包裹）。每个都是 `(ctx, r, ink, time)`，
- *    画在**原点局部坐标**里，朝向、摇摆、淡出由调用方负责。
+ *    海草 / 玻璃碴 / 宝箱 / 破网 / 玻璃球 / 未知包裹）。每个都是
+ *    `(ctx, r, ink, time)`，画在**原点局部坐标**里，朝向、摇摆、淡出
+ *    由调用方负责。
  * 2. **登记表**：`registerItemArt({ id, shape, tint, ... })` 把物品 id 绑到
  *    一个剪影加一套颜色。同一个剪影配不同色就是两件明显不同的东西。
  * 3. **自定义画法**：给了 `draw` 就完全接管，剪影库只是省事的默认值。
@@ -64,6 +65,8 @@ export type SilhouetteId =
   | "flare"
   | "compass"
   | "medkit"
+  | "net"
+  | "float"
   | "unknown";
 
 export const SILHOUETTE_IDS: readonly SilhouetteId[] = [
@@ -88,6 +91,8 @@ export const SILHOUETTE_IDS: readonly SilhouetteId[] = [
   "flare",
   "compass",
   "medkit",
+  "net",
+  "float",
   "unknown",
 ];
 
@@ -1038,6 +1043,134 @@ function drawMedkit(ctx: CanvasRenderingContext2D, r: number, ink: ItemInk): voi
   ctx.fillRect(-w / 2 + 2.6, -h * 0.3, w - 5.2, 1.6);
 }
 
+/** 破渔网：一片软塌塌的网目 + 撕开那头垂下来的线头。菱形网眼是识别点。 */
+function drawNet(ctx: CanvasRenderingContext2D, r: number, ink: ItemInk): void {
+  const w = r * 1.86;
+  const h = r * 1.4;
+  const patch = (): void => {
+    ctx.beginPath();
+    ctx.moveTo(-w * 0.5, -h * 0.16);
+    ctx.quadraticCurveTo(-w * 0.34, -h * 0.56, w * 0.02, -h * 0.44);
+    ctx.quadraticCurveTo(w * 0.4, -h * 0.34, w * 0.5, -h * 0.02);
+    ctx.quadraticCurveTo(w * 0.42, h * 0.32, w * 0.1, h * 0.4);
+    ctx.quadraticCurveTo(-w * 0.28, h * 0.48, -w * 0.5, h * 0.14);
+    ctx.closePath();
+  };
+
+  // 网片本身半透：底下的海水透得出来，一眼是「网」不是「布」
+  patch();
+  ctx.fillStyle = withAlpha(ink.tint, 0.3);
+  ctx.fill();
+  rim(ctx, ink, 1.3);
+
+  // 网眼：两组 45° 斜线交出菱形格，剪到网片里。两组必须同粗同色——
+  // 只描一组就成了斜纹布，菱形是「网」这个字的全部信息量
+  ctx.save();
+  patch();
+  ctx.clip();
+  const step = r * 0.46;
+  const span = w + h;
+  for (const pass of [0, 1]) {
+    ctx.strokeStyle = pass === 0 ? withAlpha(ink.dark, 0.85) : withAlpha(ink.tint, 0.95);
+    ctx.lineWidth = pass === 0 ? 2 : 0.9;
+    for (let i = -5; i <= 5; i++) {
+      const o = i * step;
+      ctx.beginPath();
+      ctx.moveTo(o - span, -span);
+      ctx.lineTo(o + span, span);
+      ctx.moveTo(o - span, span);
+      ctx.lineTo(o + span, -span);
+      ctx.stroke();
+    }
+  }
+  // 网结：几个交点上鼓一个点，缩小到十来像素时靠这排点认出是网
+  ctx.fillStyle = withAlpha(ink.dark, 0.9);
+  for (let gx = -2; gx <= 2; gx++) {
+    for (let gy = -1; gy <= 1; gy++) {
+      ctx.beginPath();
+      ctx.arc(gx * step * 2, gy * step * 2, 1.5, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+  ctx.restore();
+
+  // 撕开那头：三根散着的线头，轮廓下缘因此是毛的
+  ctx.strokeStyle = ink.tint;
+  ctx.lineWidth = 1.7;
+  ctx.lineCap = "round";
+  for (let i = 0; i < 3; i++) {
+    const x = w * (0.02 + i * 0.15);
+    ctx.beginPath();
+    ctx.moveTo(x, h * 0.3);
+    ctx.quadraticCurveTo(x + r * 0.2, h * 0.56, x - r * 0.08, h * 0.78);
+    ctx.stroke();
+  }
+
+  // 上纲的两个浮子
+  ctx.fillStyle = ink.accent;
+  for (const k of [-0.26, 0.16]) {
+    ctx.beginPath();
+    ctx.ellipse(w * k, -h * 0.42, r * 0.17, r * 0.12, 0.3, 0, Math.PI * 2);
+    ctx.fill();
+  }
+}
+
+/** 玻璃浮球：透光的球 + 罩在外面的绳网 + 顶上一个结。网格是它和浮标的分界。 */
+function drawFloat(ctx: CanvasRenderingContext2D, r: number, ink: ItemInk, time: number): void {
+  const rad = r * 0.8;
+
+  ctx.beginPath();
+  ctx.arc(0, 0, rad, 0, Math.PI * 2);
+  ctx.fillStyle = withAlpha(ink.tint, 0.66);
+  ctx.fill();
+  rim(ctx, ink, 1.3);
+
+  // 球心亮一块：玻璃是通透的，不是一颗实心球
+  const core = ctx.createRadialGradient(-rad * 0.3, -rad * 0.3, rad * 0.1, 0, 0, rad);
+  core.addColorStop(0, withAlpha("#ffffff", 0.42));
+  core.addColorStop(1, withAlpha(ink.tint, 0));
+  ctx.fillStyle = core;
+  ctx.beginPath();
+  ctx.arc(0, 0, rad, 0, Math.PI * 2);
+  ctx.fill();
+
+  // 绳网：两道经线 + 三道纬线，勒在球面上
+  ctx.strokeStyle = withAlpha(ink.accent, 0.95);
+  ctx.lineWidth = 1.5;
+  for (const rx of [rad * 0.36, rad]) {
+    ctx.beginPath();
+    ctx.ellipse(0, 0, rx, rad, 0, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+  for (const k of [-0.44, 0.06, 0.52]) {
+    const y = rad * k;
+    const hw = Math.sqrt(Math.max(0, rad * rad - y * y));
+    ctx.beginPath();
+    ctx.ellipse(0, y, hw, hw * 0.24, 0, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+
+  // 顶上的结与两截绳头
+  ctx.strokeStyle = ink.accent;
+  ctx.lineWidth = 1.8;
+  ctx.lineCap = "round";
+  ctx.beginPath();
+  ctx.arc(0, -rad * 1.14, r * 0.16, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(-r * 0.12, -rad * 1.24);
+  ctx.lineTo(-r * 0.34, -rad * 1.5);
+  ctx.moveTo(r * 0.12, -rad * 1.24);
+  ctx.lineTo(r * 0.3, -rad * 1.46);
+  ctx.stroke();
+
+  // 高光：球面上慢慢挪的一小片，海面反光的意思
+  ctx.fillStyle = gloss(0.34 + Math.abs(Math.sin(time * 1.2)) * 0.2);
+  ctx.beginPath();
+  ctx.ellipse(-rad * 0.36, -rad * 0.38, rad * 0.24, rad * 0.15, -0.7, 0, Math.PI * 2);
+  ctx.fill();
+}
+
 /**
  * 未知包裹：还没配图的 id 落在这里。
  *
@@ -1107,6 +1240,8 @@ export const SILHOUETTES: Record<SilhouetteId, ItemDraw> = {
   flare: (ctx, r, ink, time) => drawFlare(ctx, r, ink, time),
   compass: (ctx, r, ink, time) => drawCompass(ctx, r, ink, time),
   medkit: (ctx, r, ink) => drawMedkit(ctx, r, ink),
+  net: (ctx, r, ink) => drawNet(ctx, r, ink),
+  float: (ctx, r, ink, time) => drawFloat(ctx, r, ink, time),
   unknown: (ctx, r, ink) => drawUnknown(ctx, r, ink),
 };
 
@@ -1146,12 +1281,56 @@ export const CATALOG_ITEM_ART: Partial<Record<ItemId, Omit<ItemArtSpec, "id" | "
   medkit: { shape: "medkit", tint: "#eef1ef", dark: "#5a6a66", accent: "#e4574f", r: 13 },
 };
 
-/** 目录里全部物品的外观，名字取自 `ITEMS`。启动时全量登记。 */
-export const BASE_ITEM_ARTS: readonly ItemArtSpec[] = ITEM_IDS.map((id) => ({
-  id,
-  label: ITEMS[id].name,
-  ...(CATALOG_ITEM_ART[id] ?? {}),
-}));
+/**
+ * 只在海面上出现、目录里（还）没有的外观。
+ *
+ * `world/junk.ts` 的换装表能穿任何**登记过**的 id，不必是 `ItemId`：
+ * 破渔网与玻璃浮球就是这种「只是长在海上的东西」——捞上来仍按
+ * `Junk.kind` 入库（网→绳索、浮球→绳索），袋子里没有对应的格子。
+ *
+ * 哪天 `data/catalog.ts` 收编了它们，这里一行都不用改：目录那批先登记，
+ * 本表后登记覆盖同 id 的画法，名字则改从 `ITEMS` 现取（见 `driftLabel`），
+ * 中文名仍然只在目录里写一次。
+ */
+export const DRIFT_ITEM_ART: readonly (ItemArtSpec & { label: string })[] = [
+  {
+    id: "netScrap",
+    label: "破渔网",
+    shape: "net",
+    tint: "#e0904e",
+    dark: "#6b3517",
+    accent: "#f6dca6",
+    r: 15,
+  },
+  {
+    id: "glassFloat",
+    label: "玻璃浮球",
+    shape: "float",
+    tint: "#a8e6cf",
+    dark: "#2a6b58",
+    accent: "#dcbe84",
+    r: 12.5,
+    rare: 1,
+  },
+];
+
+/** 目录收编过的 id 用目录里的中文名，没收编的用本地名。名字不写第二遍。 */
+function driftLabel(id: string, fallback: string): string {
+  return (ITEMS as Record<string, { name: string } | undefined>)[id]?.name ?? fallback;
+}
+
+/**
+ * 启动时全量登记的外观：先目录（名字取自 `ITEMS`），再海面专有的那几件。
+ * 顺序有意义——后到的覆盖先到的。
+ */
+export const BASE_ITEM_ARTS: readonly ItemArtSpec[] = [
+  ...ITEM_IDS.map((id) => ({
+    id,
+    label: ITEMS[id].name,
+    ...(CATALOG_ITEM_ART[id] ?? {}),
+  })),
+  ...DRIFT_ITEM_ART.map((spec) => ({ ...spec, label: driftLabel(spec.id, spec.label) })),
+];
 
 const registry = new Map<string, ItemArt>();
 /** 未登记 id 的兜底外观缓存：同一个 id 每帧必须画得一模一样。 */
