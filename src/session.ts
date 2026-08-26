@@ -7,6 +7,7 @@ import {
   BUILDINGS,
   HOTBAR,
   RESOURCE_CAP,
+  STARVE,
   type PlaceableId,
   type Raft,
   type Resources,
@@ -38,7 +39,8 @@ import { stormWarnRatio } from "./sim/threats";
 import type { EndReason } from "./ui/menus";
 import { drawHud, resetHud, type BuildSlot } from "./ui/hud";
 import { drawJunkField, drawJunkHighlight, makeJunkField, reapJunk, type JunkField, updateJunk } from "./world/junk";
-import { dayNumber, dayPhase, drawOcean, swayAt } from "./world/ocean";
+import { drawPirates, drawSkiff } from "./world/craft";
+import { dayNumber, dayPhase, drawOcean } from "./world/ocean";
 import { drawRaft } from "./world/raft";
 
 export type ProbeAction =
@@ -258,8 +260,8 @@ export class Session {
       marks: this.threats.storm.targets,
     });
 
-    this.drawPirates(ctx);
-    this.drawSkiff(ctx);
+    drawPirates(ctx, this.threats.pirates, this.time, { palette });
+    drawSkiff(ctx, this.skiff, this.time, { palette });
     drawParticles(ctx, this.particles);
     drawRipples(ctx, this.ripples);
 
@@ -289,41 +291,10 @@ export class Session {
       islanders: { fed: this.economy.starving ? 0 : crew, total: crew },
       build: { slots, hint: "WASD 开船 · 空格捞 · 1–5 建造" },
       time: this.time,
+      storm01,
+      starve01: this.economy.starve / STARVE.limitS,
+      hintDanger: this.threats.pirates.length > 0 ? "海盗盯上木筏了" : undefined,
     });
-  }
-
-  private drawSkiff(ctx: CanvasRenderingContext2D): void {
-    const sway = swayAt(this.skiff.x, this.skiff.y, this.time, 0.6);
-    ctx.save();
-    ctx.translate(this.skiff.x + sway.dx, this.skiff.y + sway.dy);
-    ctx.rotate(this.skiff.heading + sway.rot);
-    ctx.fillStyle = "#c47a3a";
-    ctx.beginPath();
-    ctx.moveTo(18, 0);
-    ctx.lineTo(-14, 11);
-    ctx.lineTo(-8, 0);
-    ctx.lineTo(-14, -11);
-    ctx.closePath();
-    ctx.fill();
-    ctx.fillStyle = "#fff6d8";
-    ctx.fillRect(-5, -3.5, 9, 7);
-    ctx.restore();
-  }
-
-  private drawPirates(ctx: CanvasRenderingContext2D): void {
-    for (const p of this.threats.pirates) {
-      ctx.save();
-      ctx.translate(p.x, p.y);
-      ctx.fillStyle = "#1b1210";
-      ctx.fillRect(-16, -8, 32, 16);
-      ctx.fillStyle = "#111";
-      ctx.beginPath();
-      ctx.moveTo(-2, -18);
-      ctx.lineTo(14, -11);
-      ctx.lineTo(-2, -7);
-      ctx.fill();
-      ctx.restore();
-    }
   }
 }
 
