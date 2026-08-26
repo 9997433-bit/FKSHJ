@@ -156,9 +156,9 @@ function clampLane(lane: number, spread: number): number {
   return Math.max(-spread, Math.min(spread, lane));
 }
 
-function rollLane(rand: () => number, spread: number): number {
+function rollLane(rng: Rng, spread: number): number {
   const span = spread * 2 + 1;
-  return Math.floor(rand() * span) - spread;
+  return Math.floor(nextRand(rng) * span) - spread;
 }
 
 function rollKind(roll: number, mix: SpawnTable["mix"]): HazardKind {
@@ -175,9 +175,8 @@ export function spawnTableAt(z: number): SpawnTable {
 }
 
 function emitPickupRow(out: Pickup[], rng: Rng, z: number, t: SpawnTable): void {
-  const rand = () => nextRand(rng);
-  const lane = rollLane(rand, t.laneSpread);
-  const roll = rand();
+  const lane = rollLane(rng, t.laneSpread);
+  const roll = nextRand(rng);
   if (roll < t.gemChance) {
     out.push(makePickup("gem", lane, z));
     return;
@@ -187,8 +186,8 @@ function emitPickupRow(out: Pickup[], rng: Rng, z: number, t: SpawnTable): void 
     return;
   }
   out.push(makePickup("coin", lane, z));
-  if (rand() < t.arcChance) {
-    const dir = rand() < 0.5 ? -1 : 1;
+  if (nextRand(rng) < t.arcChance) {
+    const dir = nextRand(rng) < 0.5 ? -1 : 1;
     out.push(makePickup("coin", clampLane(lane + dir, t.laneSpread), z + t.pickupGap * 0.34));
     out.push(makePickup("coin", clampLane(lane + dir * 2, t.laneSpread), z + t.pickupGap * 0.68));
   }
@@ -201,23 +200,22 @@ function emitHazardRow(
   z: number,
   t: SpawnTable,
 ): void {
-  const rand = () => nextRand(rng);
   const density = Math.min(0.92, t.hazardDensity + Math.min(0.3, z / 9000));
-  if (rand() > density) return;
+  if (nextRand(rng) > density) return;
 
-  const lane = rollLane(rand, t.laneSpread);
-  const kind = rollKind(rand(), t.mix);
+  const lane = rollLane(rng, t.laneSpread);
+  const kind = rollKind(nextRand(rng), t.mix);
   hazards.push(makeHazard(kind, lane, z));
 
   // 窄口：对侧再补一个，但永远留出至少一条可过车道
-  if (rand() < t.pinchChance) {
+  if (nextRand(rng) < t.pinchChance) {
     const other = clampLane(lane >= 0 ? lane - 2 : lane + 2, t.laneSpread);
     if (other !== lane) hazards.push(makeHazard("tube", other, z + 14));
   }
 
-  if (rand() < t.boosterChance) {
+  if (nextRand(rng) < t.boosterChance) {
     const escape = clampLane(lane + (lane > 0 ? -1 : 1), t.laneSpread);
-    const tier = rand() < t.longBoostChance ? 2 : 1;
+    const tier = nextRand(rng) < t.longBoostChance ? 2 : 1;
     boosters.push(makeBooster(escape, z + 70, tier));
   }
 }
