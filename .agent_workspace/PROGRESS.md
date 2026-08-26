@@ -31,11 +31,11 @@
 | --- | --- | --- | --- |
 | fable-arch | cloud | `bc-aa1c9505-b960-5fb5-9803-09841114b9ae` | 进行中 |
 | fable-sota | cloud | `bc-baf18290-096b-5db8-a4a7-cfcb55b12075` | 进行中 |
-| fable-narrative | local | `bc-fe56061c-2fa3-53ce-a12a-268576a1000e` | 进行中 |
+| fable-narrative | local | `bc-fe56061c-2fa3-53ce-a12a-268576a1000e` | 已收编（STORY.md 12+3+8） |
 | fable-audit | local | `bc-5cba4e0d-c853-5e07-aa3d-aa198e968705` | 进行中 |
 | opus-content | cloud | `bc-89a8c819-edd8-5319-a02b-71e7ae9a6f39` | 进行中 |
-| opus-items | local | `bc-d166590b-8c41-5fdd-b654-c4fa0443585b` | 已交卷（14 件目录 + 原子道具袋） |
+| opus-items | local | `bc-d166590b-8c41-5fdd-b654-c4fa0443585b` | 已收编（14 件目录 + 原子道具袋） |
 | opus-story | local | `bc-ba5cd3cd-34a4-55db-b530-3094c6bfdc6a` | 已收编（10 条日记/广播） |
-| opus-play | local | `bc-4e92a6fc-7d71-50d2-bea6-4da1b77c9b2f` | 已交卷（岛民请求板） |
+| opus-play | local | `bc-4e92a6fc-7d71-50d2-bea6-4da1b77c9b2f` | 已收编（岛民请求板） |
 | gpt-test | local | `bc-8e95d48d-86db-5134-a8ac-dcfd4da95f61` | 已收编（layout 目录测试，13/13） |
 | gpt-probe | local | `bc-d7ecead5-df9f-53dd-ba23-cf9435f92b31` | 已收编（探针 hash 仍 728b59b5） |
