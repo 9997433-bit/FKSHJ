@@ -1,4 +1,4 @@
-# SOTA 基准线 — 视觉 / HUD / 菜单 / 手感（Round 1 · fable-sota · 海上末日重开）
+# SOTA 基准线 — 视觉 / HUD / 菜单 / 手感（Round 2 · fable-sota · 海上末日重开）
 
 > 目的：定义「2026 年的海上末日拾荒建造网页游戏」应该达到的体验底线。
 > 基调一句话：**手游浮岛基建的轻松感——末世但不丧**。天塌了海涨了，
@@ -57,6 +57,39 @@
 | 手感 juice | 1→4 | UI 侧已备：资源 pop / 换天 pop / 选中抬升 / 低量脉冲 / 按钮微交互；世界侧（水花 / 落地弹 / 屏震）全部未开工 |
 | 无障碍 | 1→6 | focus-visible / aria / ≥46px 命中区 / reduced-motion（DOM 与画布内脉冲都尊重）已备；未做整机键盘走查 |
 
+## 2.5 Round 2 增量（fable-sota，对照手游浮岛基建的轻松感）
+
+Round 1 结束后 session 已接线 HUD/菜单主链路；本轮补的是「危险也不吓人」的
+预警层——手游基建里风暴/饥荒从来不是 jump scare，是提前几秒的柔和布告。
+
+**本轮加了什么（全部走可选字段，session 未传时零变化、零崩溃）：**
+
+- `HudInfo` 新增三个可选字段：`storm01?`（风暴预警 0..1）、`starve01?`
+  （断供宽限消耗 0..1）、`hintDanger?`（一句危险短提示）。
+- **风暴预警层** `drawAlerts`（drawHud 内最先画，辉光垫在面板下）：
+  - 顶缘珊瑚辉光：呼吸脉冲 + 偶发「闪电感」短促提亮（双频正弦相乘做随机感，
+    零 RNG 可复现）；`prefers-reduced-motion` 下恒定不闪。
+  - 顶部中央预警条胶囊：闪电图标 + 分段轻松文案（「远处乌云在集合」→
+    「风暴在攒劲儿，扶稳」）+ storm01 进度条；随 storm01 缓入。
+  - 全部贴顶缘（y ≤ 92 < 浮岛网格上沿 96），中央舞台零遮挡。
+- **岛民饿态**：`fed < total` 或 `starve01 > 0.4` 时小人珊瑚色 + 柔和呼吸，
+  胶囊下淡入「肚子咕咕叫，快补点水粮」（覆盖断水/断粮两路，语气松弛）；
+  `starve01 > 0` 时胶囊底部一条珊瑚「宽限余量」细条（1−starve01，静态不闪）。
+- **危险短提示胶囊**：`hintDanger` 顶部中央珊瑚点 + 文案（风暴条下方顺排），
+  宽度按文本估算（不依赖 measureText，stub ctx 单测安全）。
+- **建造栏空选中引导**：slots 全未 selected 时提示行换成潟湖青
+  「先按 1–5 挑个建筑 · 点海面放置」并轻呼吸；选中后回到调用方 hint。
+  花费不够的半透明 + 珊瑚花费保持 Round 1 原样。
+
+**还缺什么（给下轮 / 父调度器）：**
+
+- session 侧接线（见 §5 更新版）：`stormWarnRatio` 已传海面但没传 HUD；
+  `starve01` 直接用 `economy.starve / STARVE.limitS`（现成状态，不用改 sim）。
+- 海盗方向预告没做：`hintDanger` 只有文案位，屏幕对应边缘的方向雾/箭头
+  还缺（P1 §4-5 仍欠）。
+- 建造栏鼠标点选（hitTestBuildBar）仍欠；触屏拇指目标未放大。
+- 结算数字滚动、新纪录彩带、岛民表情（P2）未动。
+
 ## 3. 本轮必做（fable-sota 写集：SOTA_BAR / src/ui/** / index.css）
 
 - [x] **P0 `src/ui/menus.ts`**：title / paused / gameover 三面板，中文；标题「疯狂水世界」+
@@ -108,7 +141,13 @@ drawHud(ctx, {
     ],
   },
   time: this.time,                      // 建议传 session 累计秒，动画随暂停冻结
+  // ---- Round 2 新增（全可选，不传 = 不画，行为与 Round 1 一致）----
+  storm01: stormWarnRatio(this.threats),       // 已传海面的同一个值，直接复用
+  starve01: this.economy.starve / STARVE.limitS, // economy 现成状态（import { STARVE } from "./sim/economy"）
+                                               // 或存 updateEconomy 返回的 tick.starveRatio
+  hintDanger: this.threats.pirates.length > 0 ? "海盗盯上木筏了" : undefined,
 });
+// HUD 的饿态阈值 >0.4 与 economy 的 STARVE.warnAt = 0.4 对齐，无需换算。
 
 // 2) src/main.ts — 场景切换处：
 import { renderOverlay } from "./ui/menus";
@@ -129,7 +168,8 @@ renderOverlay(overlay, "gameover", {
   `gameoverCopy(p): { title; tag }`、`renderOverlay(root, kind | "hidden", payload)`。
 - `hud.ts`：`ResourceKind` `BuildIcon` `BuildSlot` `HudInfo` `HUD_COLORS`、
   `resetHud()`、`drawHud(ctx, info)`、`drawResourceBar(ctx, info)`、
-  `drawDayBadge(ctx, info)`、`drawBuildBar(ctx, info)`。
+  `drawDayBadge(ctx, info)`、`drawBuildBar(ctx, info)`、
+  `drawAlerts(ctx, info)`（Round 2：storm01 / hintDanger 预警层）。
 - `gameoverCopy` 纯函数可直接断言；hud/menus 模块 import 无副作用（Node 安全）。
 
 ## 6. 验收 rubric（Round 1 结束时逐项打勾）
