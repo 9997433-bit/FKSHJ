@@ -1,4 +1,4 @@
-# SOTA 基准线 — 视觉 / HUD / 菜单 / 手感（Round 2 · fable-sota · 海上末日重开）
+# SOTA 基准线 — 视觉 / HUD / 菜单 / 手感（Round 3 · fable-sota · 海上末日重开）
 
 > 目的：定义「2026 年的海上末日拾荒建造网页游戏」应该达到的体验底线。
 > 基调一句话：**手游浮岛基建的轻松感——末世但不丧**。天塌了海涨了，
@@ -90,6 +90,46 @@ Round 1 结束后 session 已接线 HUD/菜单主链路；本轮补的是「危�
 - 建造栏鼠标点选（hitTestBuildBar）仍欠；触屏拇指目标未放大。
 - 结算数字滚动、新纪录彩带、岛民表情（P2）未动。
 
+## 2.6 Round 3 增量（fable-sota，小步打磨——预警层已接线，不重写）
+
+session 已把 storm01 / starve01 / hintDanger 全部接上（src/session.ts draw()
+末尾），本轮只磨真实别扭处 + 留一个下轮接线位。
+
+**预警层打磨（hud.ts，全部 surgical）：**
+
+- 危险短提示胶囊不再整体抖 alpha：出现瞬间 0.25s 淡入（文案变化会重新淡入），
+  之后胶囊本体恒定、只有珊瑚点轻呼吸——布告不该闪。reduced-motion 下全静止。
+- `drawAlerts` 补上与其他三分件一致的 `syncHudState` 调用：单独调用
+  （分阶段接线 / stub ctx 单测）时淡入状态同样正确。
+- **新可选字段 `placeHint?: string`**（session 下一轮才传；不传不画、逐帧行为
+  与 Round 2 一致）：放置被拒短句，文案直接用 sim/rules 现成的
+  `placeHint(reason)`（「得贴着木筏放」「材料不够」…）。画在建造栏上方提示行，
+  珊瑚色 + 出现瞬间轻弹（复用资源 pop 曲线）。提示行三级优先：
+  placeHint > 空选中「先按 1–5」引导 > 调用方 hint。新状态已进 resetHud。
+- 弃权说明：风暴条 / 辉光 / 饿态本轮实测代码路径无别扭，未动——避免重写。
+
+**菜单 / CSS（只修真实别扭处，共三处）：**
+
+- **结算 350ms 落定期**（menus.ts）：死亡瞬间玩家往往还按着空格捞取或连点海面，
+  面板一出焦点就落在「再来一局」上，原生 Space/Enter/点击会在看清结算前误触重开。
+  gameover 的再来一局 / 回标题 / Enter 在落定期内不响应；
+  标题、暂停面板不受影响（Enter 秒响应是刻意保留的）。
+- kbd 键帽文字居中（index.css）：帮助面板整体左对齐，键帽里的「W」原来贴左边框。
+- 面板细滚动条（index.css）：帮助展开 + 矮屏时原生粗滚动条压 22px 圆角，
+  换 `scrollbar-width: thin` + 透明轨道。
+
+**仍缺什么（给下轮 / 父调度器）：**
+
+- **浏览器实机手感未走查**：三轮验证全是 tsc / node:test / vite build / 无头
+  probe，没有一次真浏览器 devserver 键鼠走查。预警层实际观感（辉光强度、
+  胶囊节奏）、held-space 防误触、Enter 全链路需要实机确认，最好留一份录屏。
+- **Pages 还是旧滑道**：`.github/workflows/pages.yml` 只在 push main 时部署，
+  本分支（agent/crazy-sea-world）未合并前线上永远是旧构建。要么合并进 main，
+  要么给 workflow 加分支输入再手动 dispatch（workflow 文件不在本席位写集内）。
+- placeHint 接线：session 侧一行状态 + 一行传参，见 §5 更新版。
+- 继承 Round 2 未动清单：海盗方向预告（屏幕边缘方向雾/箭头）、建造栏鼠标点选
+  `hitTestBuildBar`、结算数字滚动 / 新纪录彩带、岛民表情。
+
 ## 3. 本轮必做（fable-sota 写集：SOTA_BAR / src/ui/** / index.css）
 
 - [x] **P0 `src/ui/menus.ts`**：title / paused / gameover 三面板，中文；标题「疯狂水世界」+
@@ -146,8 +186,13 @@ drawHud(ctx, {
   starve01: this.economy.starve / STARVE.limitS, // economy 现成状态（import { STARVE } from "./sim/economy"）
                                                // 或存 updateEconomy 返回的 tick.starveRatio
   hintDanger: this.threats.pirates.length > 0 ? "海盗盯上木筏了" : undefined,
+  // ---- Round 3 新增（可选；不传不画）----
+  // tryPlaceAt 的拒绝分支先存：this.denied = { text: placeHint(check.reason), at: this.time };
+  placeHint: this.denied && this.time - this.denied.at < 2.5 ? this.denied.text : undefined,
 });
 // HUD 的饿态阈值 >0.4 与 economy 的 STARVE.warnAt = 0.4 对齐，无需换算。
+// placeHint 的文案用 sim/rules 现成的 placeHint(reason)，撤掉时机由 session 掌握
+//（建议拒绝后显示 2–3 秒；HUD 只负责画 + 出现瞬间轻弹）。
 
 // 2) src/main.ts — 场景切换处：
 import { renderOverlay } from "./ui/menus";
@@ -169,7 +214,8 @@ renderOverlay(overlay, "gameover", {
 - `hud.ts`：`ResourceKind` `BuildIcon` `BuildSlot` `HudInfo` `HUD_COLORS`、
   `resetHud()`、`drawHud(ctx, info)`、`drawResourceBar(ctx, info)`、
   `drawDayBadge(ctx, info)`、`drawBuildBar(ctx, info)`、
-  `drawAlerts(ctx, info)`（Round 2：storm01 / hintDanger 预警层）。
+  `drawAlerts(ctx, info)`（Round 2：storm01 / hintDanger 预警层；
+  Round 3：`HudInfo.placeHint?` 放置被拒短句，画在建造栏提示行）。
 - `gameoverCopy` 纯函数可直接断言；hud/menus 模块 import 无副作用（Node 安全）。
 
 ## 6. 验收 rubric（Round 1 结束时逐项打勾）
