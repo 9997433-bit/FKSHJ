@@ -14,9 +14,9 @@ median to reduce one-off scheduler and GC noise; p95 is reported for visibility.
 
 | Workload | Median | p95 | Budget (median) | Result |
 | --- | ---: | ---: | ---: | --- |
-| `generateWorld` × 200 seeds | 1.472 ms | 1.603 ms | ≤ 75 ms | PASS |
-| `stepSpeed` × 200,000 steps | 2.410 ms | 2.439 ms | ≤ 50 ms | PASS |
-| `stepParticles` × 360 particles × 300 frames | 0.395 ms | 0.413 ms | ≤ 75 ms | PASS |
+| `generateWorld` × 200 seeds | 1.479 ms | 1.574 ms | ≤ 75 ms | PASS |
+| `stepSpeed` × 200,000 steps | 2.813 ms | 2.831 ms | ≤ 50 ms | PASS |
+| `stepParticles` × 360 particles × 300 frames | 0.391 ms | 0.423 ms | ≤ 75 ms | PASS |
 
 The particle budget is 0.25 ms per simulated frame at the 360-particle gameplay
 cap, leaving most of a 16.67 ms frame for rendering and other systems. The world
@@ -33,14 +33,17 @@ across calendar days. The complete replay snapshots matched exactly.
 
 | Metric | Value |
 | --- | ---: |
-| Score | 587.644 |
-| Distance | 1198.221 |
+| Score | 586.233 |
+| Distance | 1191.165 |
 | HP | 0 |
-| Coins / pickups | 12 / 12 |
+| Coins / pickups | 12 / 10 |
 | Hazards hit | 3 |
 | Boosters used | 0 |
-| Final speed | 159.178 |
+| Final speed | 159.013 |
 | Run over | true |
+
+`pickupsTaken` can read lower than `coins` because `recycleBehind` drops
+entities already behind the raft; score and coins are the source of truth.
 
 ## Long-run world coverage probe
 
