@@ -1,3 +1,10 @@
+import {
+  CREW as CREW_TABLE,
+  PRODUCTION as PRODUCTION_TABLE,
+  REPAIR as REPAIR_TABLE,
+  STARVE as STARVE_TABLE,
+  UPKEEP as UPKEEP_TABLE,
+} from "../data/constants";
 import { BUILDINGS, RESOURCE_IDS, gain, gainAll, pay, repairCell } from "./rules";
 import type { BuildingId, Cell, Cost, Raft, Resources } from "./rules";
 
@@ -11,6 +18,10 @@ import type { BuildingId, Cell, Cost, Raft, Resources } from "./rules";
  * - 淡水/食物是连续消耗的，可以吃到 0；吃到 0 且这一帧没吃饱就开始记
  *   断粮时间，喂饱了按两倍速回落。断粮满 STARVE.limitS 结算。
  * - 本文件不判定「游戏结束」，只把 starved 抛出去，由 session 决定切场景。
+ *
+ * 数值来源：PRODUCTION / CREW / UPKEEP / REPAIR / STARVE 全部 import 自
+ * `data/constants.ts`，本文件不再留副本。效率曲线 efficiencyOf（残血
+ * 50%–100%）和维修优先级里那个 core 加权 0.25 constants 没有，仍在本地。
  */
 
 export type Production = {
@@ -19,36 +30,26 @@ export type Production = {
   readonly out: Cost;
 };
 
-export const PRODUCTION: Partial<Record<BuildingId, Production>> = {
-  collector: { intervalS: 5, out: { wood: 1, plastic: 1 } },
-  purifier: { intervalS: 3, out: { water: 3 } },
-  fish: { intervalS: 3, out: { food: 2 } },
-};
-
-export const CREW = {
-  /** 开局就有几张嘴 */
-  base: 3,
-  /** 每盖一座非地基建筑就多来一个岛民干活（也多一张嘴） */
-  perBuilding: 1,
-} as const;
-
-/** 每个岛民每秒的消耗 */
-export const UPKEEP = { water: 0.12, food: 0.1 } as const;
+/** = constants PRODUCTION（collector 5s、purifier / fish 3s 各出一次整数货） */
+export const PRODUCTION: Partial<Record<BuildingId, Production>> = PRODUCTION_TABLE;
 
 /**
- * 岛民自己会修房子：定期挑最残的一格，花木板补一点血。
+ * = constants CREW。base 是开局就有的嘴，
+ * perBuilding 是每盖一座非地基建筑多来的那个岛民（也多一张嘴）。
+ */
+export const CREW = CREW_TABLE;
+
+/** 每个岛民每秒的消耗 = constants UPKEEP */
+export const UPKEEP = UPKEEP_TABLE;
+
+/**
+ * 岛民自己会修房子：定期挑最残的一格，花木板补一点血（= constants REPAIR）。
  * 没有这条，木筏被风暴啃过就只会单调地烂下去，捞木板也失去意义。
  */
-export const REPAIR = { intervalS: 2, hp: 9, cost: { wood: 1 } as Cost } as const;
+export const REPAIR = REPAIR_TABLE;
 
-export const STARVE = {
-  /** 连续断粮多久算完蛋 */
-  limitS: 25,
-  /** 喂饱后计时回落倍率 */
-  recoverMul: 2,
-  /** 超过这个比例就该弹警告了（HUD 用） */
-  warnAt: 0.4,
-} as const;
+/** = constants STARVE：断粮上限、喂饱后的回落倍率、HUD 报警阈值 */
+export const STARVE = STARVE_TABLE;
 
 export type EconomyState = {
   /** 断粮累计秒数 */

@@ -1,3 +1,4 @@
+import { SKIFF as SKIFF_TABLE } from "../data/constants";
 import { SEA_BOUNDS, RAFT_ORIGIN, TILE } from "../sim/rules";
 import type { Vec2 } from "../sim/rules";
 
@@ -10,21 +11,12 @@ import type { Vec2 } from "../sim/rules";
  * - 撞到海域边界是「吸收」不是「弹开」：位置夹住并把该轴速度清零，
  *   贴边不会抖。
  */
-export const SKIFF = {
-  /** 满推力加速度（逻辑像素/秒²） */
-  accel: 1150,
-  /** 水阻系数，速度每秒衰减到 e^-drag */
-  drag: 2.6,
-  maxSpeed: 300,
-  /** 船体半径，画图与碰撞共用 */
-  radius: 15,
-  /** 捞取判定半径：约一格半，靠上去就能捞 */
-  scoopRadius: TILE * 1.5,
-  /** 两次捞取的最小间隔，防止按住空格一帧一捞 */
-  scoopCooldownS: 0.22,
-  /** 低于这个速度直接判停，避免浮点尾巴让船永远在飘 */
-  restSpeed: 3,
-} as const;
+
+/**
+ * = constants SKIFF：加速度、水阻、极速、船体半径、捞取半径与冷却。
+ * 出生点偏移（TILE × 2.5, TILE × 2）constants 没有，还在下面 createSkiff 里。
+ */
+export const SKIFF = SKIFF_TABLE;
 
 export type Bounds = { minX: number; minY: number; maxX: number; maxY: number };
 

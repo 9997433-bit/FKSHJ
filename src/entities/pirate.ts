@@ -1,26 +1,16 @@
+import { PIRATE as PIRATE_TABLE } from "../data/constants";
 import type { Vec2 } from "../sim/rules";
 
 /**
  * 海盗船。行为极简：朝最近的木筏格子直线开，进入 reach 就停下来砍。
  * 寻路是故意不做的——海面没有障碍，A* 只会让 60fps 变难看。
  */
-export const PIRATE = {
-  baseSpeed: 58,
-  /** 每波给一点速度加成，后期不至于太温柔 */
-  speedPerWave: 4,
-  maxSpeed: 130,
-  baseHp: 30,
-  hpPerWave: 8,
-  radius: 16,
-  /** 停船开砍的距离（格子中心到船心） */
-  reach: 46,
-  /** 拆房 DPS：单只海盗啃穿一格地基要 9 秒，够玩家反应 */
-  dps: 4.5,
-  /** 被打死掉的金属 */
-  dropMetal: 2,
-  /** 被打中后的短暂受击闪白时长 */
-  flashS: 0.12,
-} as const;
+
+/**
+ * = constants PIRATE：速度/血量随波数增长（baseSpeed + speedPerWave × wave，
+ * 上限 maxSpeed），reach 内停船开砍 dps，死后掉 dropMetal 金属。
+ */
+export const PIRATE = PIRATE_TABLE;
 
 export type Pirate = {
   x: number;

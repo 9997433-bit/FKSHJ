@@ -1,4 +1,11 @@
-import { CANVAS } from "../data/constants";
+import {
+  BUILD_COST,
+  RESOURCE_CAP as RESOURCE_CAP_TABLE,
+  START_RESOURCES as START_RESOURCES_TABLE,
+  STRUCTURE_HP,
+  TILE as TILE_GRID,
+} from "../data/constants";
+import type { BuildingId, PlaceableId, ResourceId } from "../data/constants";
 
 /**
  * 规则层：资源、花费、木筏网格与放置合法性。
@@ -10,12 +17,18 @@ import { CANVAS } from "../data/constants";
  *   指挥中心固定在 (0, 0)。世界坐标由 tileCenter/worldToTile 换算。
  * - 所有会花钱的操作走 pay()：先 canAfford 再扣，扣不动就整体不扣，
  *   不存在「扣了一半」的中间态。
+ *
+ * 数值来源：TILE / RESOURCE_CAP / START_RESOURCES / BUILD_COST /
+ * STRUCTURE_HP 一律 import 自 `data/constants.ts`，本文件不再留副本——
+ * 改平衡改那边一处即可。constants 里没有对应条目的（SEA_BOUNDS、
+ * HOTBAR、RESOURCE_NAMES、PLACE_HINTS、BUILDINGS 的 name/desc/onWater）
+ * 仍然定义在这里。
  */
 
 // ── 资源 ────────────────────────────────────────────────────────────
 
-/** 四种打捞物 + 两种生活物资 */
-export type ResourceId = "wood" | "plastic" | "metal" | "rope" | "water" | "food";
+/** 四种打捞物 + 两种生活物资（唯一定义在 data/constants.ts） */
+export type { ResourceId };
 
 /** 海面能捞到的东西（水和食物只能靠净水机/钓鱼台产） */
 export const SALVAGE_IDS = ["wood", "plastic", "metal", "rope"] as const satisfies readonly ResourceId[];
@@ -27,25 +40,14 @@ export type Resources = Record<ResourceId, number>;
 /** 花费/产出表，缺省项按 0 处理 */
 export type Cost = Partial<Record<ResourceId, number>>;
 
-/** 仓库上限，捞爆了就溢出丢弃（也让 HUD 有个分母） */
-export const RESOURCE_CAP: Resources = {
-  wood: 99,
-  plastic: 99,
-  metal: 99,
-  rope: 99,
-  water: 100,
-  food: 100,
-};
+/** 仓库上限，捞爆了就溢出丢弃（也让 HUD 有个分母）。数值 = constants RESOURCE_CAP */
+export const RESOURCE_CAP: Resources = RESOURCE_CAP_TABLE;
 
-/** 开局家底：够铺一块地基 + 一台产出建筑，金属正好够第一座炮塔 */
-export const START_RESOURCES: Resources = {
-  wood: 14,
-  plastic: 8,
-  metal: 8,
-  rope: 8,
-  water: 45,
-  food: 45,
-};
+/**
+ * 开局家底：够铺一块地基 + 一台产出建筑，金属正好够第一座炮塔。
+ * 数值 = constants START_RESOURCES；createResources 每局拷一份，不写回原表。
+ */
+export const START_RESOURCES: Resources = START_RESOURCES_TABLE;
 
 export const RESOURCE_NAMES: Record<ResourceId, string> = {
   wood: "木板",
@@ -58,10 +60,11 @@ export const RESOURCE_NAMES: Record<ResourceId, string> = {
 
 // ── 建筑 ────────────────────────────────────────────────────────────
 
-/** 可以由玩家放置的东西，顺序即 1–5 快捷键顺序 */
-export type PlaceableId = "floor" | "collector" | "purifier" | "fish" | "turret";
-/** 格子上可能站着的东西；core 是开局就在的指挥中心，玩家造不出来 */
-export type BuildingId = PlaceableId | "core";
+/**
+ * PlaceableId = 玩家能放的东西（顺序即 1–5 快捷键顺序）；BuildingId 再加上
+ * 开局就在、玩家造不出来的 core。两者唯一定义在 data/constants.ts。
+ */
+export type { BuildingId, PlaceableId };
 
 export const HOTBAR = ["floor", "collector", "purifier", "fish", "turret"] as const satisfies readonly PlaceableId[];
 
@@ -75,45 +78,50 @@ export type BuildingSpec = {
   readonly desc: string;
 };
 
+/**
+ * 建筑表：花费取 constants BUILD_COST、血上限取 constants STRUCTURE_HP，
+ * 这里只补 constants 没有的文案与 onWater 规则。
+ * core 造不出来，BUILD_COST 里也就没有它，花费固定是空表。
+ */
 export const BUILDINGS: Record<BuildingId, BuildingSpec> = {
   floor: {
     id: "floor",
     name: "地基",
-    cost: { wood: 4, rope: 2 },
+    cost: BUILD_COST.floor,
     onWater: true,
-    maxHp: 40,
+    maxHp: STRUCTURE_HP.floor,
     desc: "扩一格木筏，必须四向贴着现有木筏",
   },
   collector: {
     id: "collector",
     name: "收集器",
-    cost: { wood: 6, plastic: 4 },
+    cost: BUILD_COST.collector,
     onWater: false,
-    maxHp: 45,
+    maxHp: STRUCTURE_HP.collector,
     desc: "自动捞木板和塑料",
   },
   purifier: {
     id: "purifier",
     name: "净水机",
-    cost: { plastic: 6, metal: 4 },
+    cost: BUILD_COST.purifier,
     onWater: false,
-    maxHp: 45,
+    maxHp: STRUCTURE_HP.purifier,
     desc: "产淡水",
   },
   fish: {
     id: "fish",
     name: "钓鱼台",
-    cost: { wood: 5, rope: 4 },
+    cost: BUILD_COST.fish,
     onWater: false,
-    maxHp: 40,
+    maxHp: STRUCTURE_HP.fish,
     desc: "产食物",
   },
   turret: {
     id: "turret",
     name: "炮塔",
-    cost: { metal: 8, wood: 4 },
+    cost: BUILD_COST.turret,
     onWater: false,
-    maxHp: 65,
+    maxHp: STRUCTURE_HP.turret,
     desc: "自动射击靠近的海盗",
   },
   core: {
@@ -121,20 +129,20 @@ export const BUILDINGS: Record<BuildingId, BuildingSpec> = {
     name: "指挥中心",
     cost: {},
     onWater: false,
-    maxHp: 220,
+    maxHp: STRUCTURE_HP.core,
     desc: "老大的家。塌了这局就结算",
   },
 };
 
 // ── 世界与网格坐标 ──────────────────────────────────────────────────
 
-/** 一格木筏的边长（逻辑像素） */
-export const TILE = 64;
+/** 一格木筏的边长（逻辑像素）= constants TILE.sizePx */
+export const TILE = TILE_GRID.sizePx;
 
-/** 网格原点在世界坐标里的位置：逻辑画布正中 */
-export const RAFT_ORIGIN = { x: CANVAS.w / 2, y: CANVAS.h / 2 } as const;
+/** 网格原点在世界坐标里的位置：逻辑画布正中 = constants TILE.originX / originY */
+export const RAFT_ORIGIN = { x: TILE_GRID.originX, y: TILE_GRID.originY } as const;
 
-/** 小船能跑的海域，以木筏为中心的一片矩形 */
+/** 小船能跑的海域，以木筏为中心的一片矩形。constants 里没有这一项，只此一份 */
 export const SEA_BOUNDS = {
   minX: RAFT_ORIGIN.x - 960,
   minY: RAFT_ORIGIN.y - 540,
@@ -197,11 +205,16 @@ function makeCell(gx: number, gy: number, id: BuildingId): Cell {
   return { gx, gy, id, hp: maxHp, maxHp, timer: 0 };
 }
 
-/** 开局 3×3 木筏，正中指挥中心 */
+/**
+ * 开局木筏，正中指挥中心。边长取 constants TILE.startSize（3 → 3×3，
+ * 即 |gx| ≤ 1 且 |gy| ≤ 1）。网格以 (0,0) 格为中心，所以只有奇数边长
+ * 有意义；偶数会被向下取到相邻的奇数。
+ */
 export function createRaft(): Raft {
+  const half = Math.floor((TILE_GRID.startSize - 1) / 2);
   const cells = new Map<string, Cell>();
-  for (let gy = -1; gy <= 1; gy++) {
-    for (let gx = -1; gx <= 1; gx++) {
+  for (let gy = -half; gy <= half; gy++) {
+    for (let gx = -half; gx <= half; gx++) {
       cells.set(cellKey(gx, gy), makeCell(gx, gy, gx === 0 && gy === 0 ? "core" : "floor"));
     }
   }

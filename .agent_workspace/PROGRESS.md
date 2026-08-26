@@ -42,6 +42,6 @@
 | fable-arch | cloud | `bc-254b0b07-a5a1-53ae-820d-e18dff3666dd` | 已完成（constants 收口，hq/48px 叙事已删） |
 | fable-sota | cloud | `bc-8a82346a-7432-59cb-b4ef-73b47b867453` | 进行中 |
 | opus-content | cloud | `bc-38531cf3-2537-51f4-bd67-178c8f004638` | 进行中 |
-| opus-core | local | `bc-9c1a6d9a-3d86-536e-a7ed-fc5208d181f0` | 进行中 |
+| opus-core | local | `bc-9c1a6d9a-3d86-536e-a7ed-fc5208d181f0` | 已交卷（sim/entities 改读 constants） |
 | gpt-test | local | `bc-cd7870c0-974d-55bb-87f4-68d0f9a3ef61` | 已交卷（placeHint / scoop / 新纪录文案） |
 | gpt-probe | local | `bc-5bf5120d-9eb0-5217-b60e-f050f8dedffb` | 已交卷（BENCH 已按当前 HEAD 刷新） |

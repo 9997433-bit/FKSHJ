@@ -1,6 +1,7 @@
+import { STORM as STORM_TABLE, TURRET as TURRET_TABLE, WAVE as WAVE_TABLE } from "../data/constants";
 import { PIRATE, createPirate, damagePirate, stepPirate } from "../entities/pirate";
 import type { Pirate } from "../entities/pirate";
-import { RAFT_ORIGIN, TILE, damageCell, gain, nearestCell, outerCells, tileCenter } from "./rules";
+import { RAFT_ORIGIN, damageCell, gain, nearestCell, outerCells, tileCenter } from "./rules";
 import type { BuildingId, Raft, Resources, Rng, TilePos } from "./rules";
 
 /**
@@ -14,41 +15,20 @@ import type { BuildingId, Raft, Resources, Rng, TilePos } from "./rules";
  *   目标在预警开始时就选好并抛出去，HUD 才能提前把那几格标红。
  * - 炮塔的射击节奏借用 cell.timer——炮塔不在 PRODUCTION 表里，
  *   economy 不会碰它的 timer，两边互不打架。
+ *
+ * 数值来源：STORM / WAVE / TURRET 全部 import 自 `data/constants.ts`。
+ * constants 没有的调度细节仍写死在本文件：波内人数 min(6, 1 + ⌊波数/2⌋)、
+ * 同波方位散布 0.35 rad、出生半径抖动 ±8%。
  */
 
-export const STORM = {
-  /** 开局的太平时间 */
-  firstS: 50,
-  /** 两场风暴的间隔，每场之后缩短 gapDecayS，下限 gapMinS */
-  gapS: 42,
-  gapMinS: 22,
-  gapDecayS: 3,
-  /** 预警时长 */
-  warnS: 4,
-  /** 单格伤害：一场风暴啃不掉满血地基，两场可以 */
-  damage: 22,
-  /** 每存活这么久，同时被打的格子 +1 */
-  extraEveryS: 90,
-  maxTargets: 5,
-} as const;
+/** = constants STORM：太平期、预警时长、单格伤害与落点数上限 */
+export const STORM = STORM_TABLE;
 
-export const WAVE = {
-  /** 第一波要晚于「攒够一座炮塔」的时间，否则玩家只能挨打 */
-  firstS: 55,
-  gapS: 46,
-  gapMinS: 22,
-  gapDecayS: 2.5,
-  /** 出生半径：画面外一点点 */
-  spawnRadius: 760,
-  maxAlive: 8,
-} as const;
+/** = constants WAVE：首波时间、波间隔衰减、出生半径与同屏上限 */
+export const WAVE = WAVE_TABLE;
 
-export const TURRET = {
-  range: TILE * 5,
-  /** 单发伤害与射速；DPS = damage / shotIntervalS = 18 */
-  damage: 9,
-  shotIntervalS: 0.5,
-} as const;
+/** = constants TURRET：射程 5 格、单发 9 伤、0.5s 一发 */
+export const TURRET = TURRET_TABLE;
 
 /** 炮塔理论 DPS，HUD/平衡表用 */
 export const TURRET_DPS = TURRET.damage / TURRET.shotIntervalS;
