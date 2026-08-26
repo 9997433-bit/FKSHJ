@@ -37,5 +37,5 @@
 | opus-items | local | `bc-d166590b-8c41-5fdd-b654-c4fa0443585b` | 进行中 |
 | opus-story | local | `bc-ba5cd3cd-34a4-55db-b530-3094c6bfdc6a` | 进行中 |
 | opus-play | local | `bc-4e92a6fc-7d71-50d2-bea6-4da1b77c9b2f` | 进行中 |
-| gpt-test | local | `bc-8e95d48d-86db-5134-a8ac-dcfd4da95f61` | 进行中 |
+| gpt-test | local | `bc-8e95d48d-86db-5134-a8ac-dcfd4da95f61` | 已交卷（layout 目录测试） |
 | gpt-probe | local | `bc-d7ecead5-df9f-53dd-ba23-cf9435f92b31` | 进行中 |
