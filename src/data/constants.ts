@@ -8,15 +8,11 @@
  *    CANVAS，loop 吃 LOOP，save 吃 SAVE_KEY，ocean 吃 DAY，
  *    junk 吃 SALVAGE 的**每一个键**（含 weights / yields 的元组形状）。
  *
- * 2. 【文档镜像】其余全部（TILE、RESOURCE_CAP、START_RESOURCES、
+ * 2. 【平衡真源】其余全部（TILE、RESOURCE_CAP、START_RESOURCES、
  *    BUILD_COST、STRUCTURE_HP、PRODUCTION、CREW/UPKEEP/REPAIR/STARVE、
- *    STORM/WAVE/TURRET、PIRATE、SKIFF）。数字已与 sim 侧本地副本逐项
- *    对齐：`sim/rules.ts`（资源/建筑/网格）、`sim/economy.ts`（产出/
- *    吃喝/维修/断粮）、`sim/threats.ts`（风暴/海盗波/炮塔）、
- *    `entities/skiff.ts` 与 `entities/pirate.ts`（小船/海盗手感）。
- *    sim 目前尚**不** import 镜像段——Round 3 由 opus-core 负责把
- *    sim/entities 改为直接 import 这里的数，收编为唯一真源；在那之前
- *    改平衡仍改 sim 原件，再回来同步这里，两边不一致时以能跑的 sim 为准。
+ *    STORM/WAVE/TURRET、PIRATE、SKIFF）。sim / entities 已改为 import
+ *    这些数；对外仍导出 `TILE = 64`、`RAFT_ORIGIN` 等旧形状，绘制层
+ *    不用跟着改。改平衡改本文件一处即可。
  *
  * 约定：
  * - 单位：长度 = 逻辑像素（CANVAS 坐标系），时间 = 秒。

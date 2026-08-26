@@ -27,6 +27,7 @@ import {
   isCoreDown,
   nearestInScoop,
   place,
+  placeHint,
   type Skiff,
   type ThreatState,
   beginScoop,
@@ -72,6 +73,7 @@ export class Session {
   junk: JunkField;
   selected: PlaceableId | null = null;
   rng: () => number;
+  private denied: { text: string; at: number } | null = null;
 
   particles: Particle[] = [];
   ripples: Ripple[] = [];
@@ -212,12 +214,14 @@ export class Session {
     const check = place(this.raft, this.res, id, tile.gx, tile.gy);
     if (check.ok) {
       this.built += 1;
+      this.denied = null;
       if (!this.headless) {
         buildChips(this.particles, x, y, "#d2a36a");
         sfx.build();
       }
       return true;
     }
+    this.denied = { text: placeHint(check.reason), at: this.time };
     if (!this.headless) sfx.deny();
     return false;
   }
@@ -294,6 +298,8 @@ export class Session {
       storm01,
       starve01: this.economy.starve / STARVE.limitS,
       hintDanger: this.threats.pirates.length > 0 ? "海盗盯上木筏了" : undefined,
+      placeHint:
+        this.denied && this.time - this.denied.at < 2.5 ? this.denied.text : undefined,
     });
   }
 }
