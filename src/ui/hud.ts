@@ -12,7 +12,6 @@ export type HudInfo = {
   time?: number;
 };
 
-const PANEL_BACK = "rgba(4, 20, 28, 0.45)";
 const POP_MS = 0.35;
 
 // HUD 动画状态（单实例即可）：连击弹跳、掉血脉冲
@@ -43,7 +42,7 @@ export function drawHud(ctx: CanvasRenderingContext2D, info: HudInfo): void {
 }
 
 function drawScorePanel(ctx: CanvasRenderingContext2D, info: HudInfo): void {
-  ctx.fillStyle = PANEL_BACK;
+  ctx.fillStyle = info.theme.panel;
   roundRect(ctx, 18, 16, 236, 92, 14);
   ctx.fill();
   ctx.textAlign = "left";
@@ -71,7 +70,7 @@ function drawCombo(ctx: CanvasRenderingContext2D, info: HudInfo, now: number): v
   ctx.save();
   ctx.translate(cx, cy);
   ctx.scale(pop, pop);
-  ctx.fillStyle = PANEL_BACK;
+  ctx.fillStyle = info.theme.panel;
   roundRect(ctx, -70, -20, 140, 40, 20);
   ctx.fill();
   ctx.strokeStyle = withAlpha(info.theme.accent, 0.85);
@@ -91,7 +90,7 @@ function drawHearts(ctx: CanvasRenderingContext2D, info: HudInfo, now: number): 
   const lowHp = info.hp <= 1;
   const w = PLAYER.maxHp * 36 + 20;
   const x0 = CANVAS.w - 18 - w;
-  ctx.fillStyle = PANEL_BACK;
+  ctx.fillStyle = info.theme.panel;
   roundRect(ctx, x0, 18, w, 44, 14);
   ctx.fill();
   for (let i = 0; i < PLAYER.maxHp; i++) {
@@ -115,7 +114,7 @@ function drawHearts(ctx: CanvasRenderingContext2D, info: HudInfo, now: number): 
 function drawThemeBadge(ctx: CanvasRenderingContext2D, info: HudInfo): void {
   const w = 118;
   const x0 = CANVAS.w - 18 - w;
-  ctx.fillStyle = PANEL_BACK;
+  ctx.fillStyle = info.theme.panel;
   roundRect(ctx, x0, 70, w, 34, 17);
   ctx.fill();
   ctx.fillStyle = info.theme.accent;
@@ -141,7 +140,7 @@ function drawSpeedBar(ctx: CanvasRenderingContext2D, info: HudInfo): void {
   ctx.textAlign = "left";
   ctx.fillText("速度", x, y - 6);
 
-  ctx.fillStyle = PANEL_BACK;
+  ctx.fillStyle = info.theme.panel;
   roundRect(ctx, x, y, w, h, h / 2);
   ctx.fill();
 

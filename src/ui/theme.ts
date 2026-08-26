@@ -21,6 +21,8 @@ export type ThemePaint = {
   gem: string;
   /** 语义色：危险（障碍、低血警示） */
   danger: string;
+  /** 语义色：HUD 面板底色（半透明，随主题染色） */
+  panel: string;
 };
 
 export const THEMES: Record<ThemeId, ThemePaint> = {
@@ -40,6 +42,7 @@ export const THEMES: Record<ThemeId, ThemePaint> = {
     coin: "#ffd166",
     gem: "#7cf7ff",
     danger: "#ff5470",
+    panel: "rgba(4, 32, 42, 0.5)",
   },
   cave: {
     id: "cave",
@@ -57,6 +60,7 @@ export const THEMES: Record<ThemeId, ThemePaint> = {
     coin: "#ffdf7e",
     gem: "#8ef0ff",
     danger: "#ff5f7a",
+    panel: "rgba(4, 14, 28, 0.56)",
   },
   volcano: {
     id: "volcano",
@@ -74,6 +78,7 @@ export const THEMES: Record<ThemeId, ThemePaint> = {
     coin: "#ffd93d",
     gem: "#9be8ff",
     danger: "#ff3b30",
+    panel: "rgba(40, 12, 16, 0.52)",
   },
   neon: {
     id: "neon",
@@ -91,6 +96,7 @@ export const THEMES: Record<ThemeId, ThemePaint> = {
     coin: "#ffe066",
     gem: "#2ee6d6",
     danger: "#ff2e5f",
+    panel: "rgba(16, 6, 36, 0.56)",
   },
 };
 
@@ -169,6 +175,7 @@ export function mixThemes(a: ThemePaint, b: ThemePaint, t: number): ThemePaint {
     coin: lerpColor(a.coin, b.coin, k),
     gem: lerpColor(a.gem, b.gem, k),
     danger: lerpColor(a.danger, b.danger, k),
+    panel: lerpColor(a.panel, b.panel, k),
   };
 }
 
