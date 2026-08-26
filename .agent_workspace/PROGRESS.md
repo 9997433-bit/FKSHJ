@@ -21,7 +21,7 @@
 | --- | --- | --- |
 | 准备 | 完成 | 分支已建；游戏迁入 `games/sea/` |
 | Round 1 | 完成 | session 已接线；探针 728b59b5 |
-| Round 2 | 进行中 | 10 路按 ROUND2_BRIEF 派出（3 云端 + 7 本机） |
+| Round 2 | 收口 | 海面 look、附带掉落、里程碑、HUD 袋条；17 测绿；探针 728b59b5 |
 | Round 3 | 未开始 | |
 | 归档合并 | 未开始 | |
 
@@ -39,3 +39,18 @@
 | opus-play | local | `bc-4e92a6fc-7d71-50d2-bea6-4da1b77c9b2f` | 已收编（岛民请求板） |
 | gpt-test | local | `bc-8e95d48d-86db-5134-a8ac-dcfd4da95f61` | 已收编（layout 目录测试，13/13） |
 | gpt-probe | local | `bc-d7ecead5-df9f-53dd-ba23-cf9435f92b31` | 已收编（探针 hash 仍 728b59b5） |
+
+## Round 2 派发记录
+
+| 角色 | 环境 | Agent ID | 状态 |
+| --- | --- | --- | --- |
+| fable-arch | cloud | `bc-67e2a65e-3ec4-57d2-bbf6-de10974b77f8` | 已收编（JUNK_LOOKS / MILESTONES 契约） |
+| fable-sota | cloud | `bc-77cd0f28-fe0f-536e-b03a-a16e415f378a` | 已收编（bagSlots / questDone） |
+| opus-content | cloud | `bc-7d2bf23d-040a-5aa3-a837-d2da19368fc7` | 已收编（海面 look 换装） |
+| fable-narrative | local | `bc-efcdc501-aeeb-5850-8f14-6c2e8ac11044` | 已收编（里程碑文案） |
+| fable-audit | local | `bc-87d4a13e-d34e-5fca-982d-d435170759c3` | 已收编（袋折法审计） |
+| opus-items | local | `bc-53601111-7cbe-578e-8380-0f97d88dce7e` | 已收编（rollItemDrop） |
+| opus-story | local | `bc-fc4a82f6-dad7-5a5a-9e98-628dd7a04e72` | 已收编（+4 beat） |
+| opus-play | local | `bc-d1531ca9-30d3-563a-8de5-022e953db096` | 已收编（里程碑旁路） |
+| gpt-test | local | `bc-01cef203-733d-5fc1-87d7-19fe9956c54d` | 已收编（17 测） |
+| gpt-probe | local | `bc-fe90bbf0-e021-5f3e-adf8-379425c3e656` | 已收编（复测 hash） |

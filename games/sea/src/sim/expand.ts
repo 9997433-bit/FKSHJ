@@ -2,33 +2,42 @@ import { RESOURCE_IDS, RESOURCE_NAMES, gainAll, pay } from "./rules";
 import type { Cost, ResourceId, Resources, Rng, SalvageId } from "./rules";
 
 /**
- * 请求板层：岛民往板上贴条子，玩家用打捞来的建材换生活物资。
+ * 请求板层：岛民往板上贴条子，玩家用打捞来的建材换生活物资；
+ * 板子旁边挂一条里程碑目标链（首座净水机 / 撑过风暴 / 木筏 ≥12 / 活到第 3 天）。
  *
  * 为什么要有这一层：木筏现在只有「捞 → 建 → 挨打」一条线，捞来的木板/塑料
  * 除了盖房子没有第二个去处，而淡水食物只能靠建筑慢慢产。请求板把这两头接上
  * ——拿一两种建材换一小笔水或食物，给玩家一个「现在缺水，先交两张单」的短期
- * 决策，同时顺手产出日记文本。
+ * 决策，同时顺手产出日记文本。里程碑补的是另一头：条子是分钟级的短目标，
+ * 里程碑是一整局的长目标，让「多铺两格」「熬过今晚」也有个收束。
  *
  * 契约：
- * - 只依赖 rules 的 pay / gainAll / RESOURCE_NAMES，不碰 economy / threats /
- *   session，也不碰 DOM。旧文件一行没改，接线全在 session 那边。
+ * - 只依赖 rules 的 pay / gainAll / RESOURCE_NAMES，不碰 economy /
+ *   threats / session，也不碰 DOM。接线全在 session 那边。
  * - 随机全部走传入的 Rng：一次贴单固定消耗「1 次挑模板 + 每种材料 1 次」的
- *   抽取，同种子同序列。updateBoard 不贴单时一次 rng 都不消耗。
+ *   抽取，同种子同序列。updateBoard 不贴单时一次 rng 都不消耗，
+ *   里程碑那条旁路则一次都不抽。
  * - 交单走 pay()：材料不够就整体不扣，仓库不会被扣成负数；超时作废也只是
  *   丢掉这笔奖励 + 清空连击，从不倒扣资源。
- * - 本文件不切场景、不放音效：updateBoard / complete 只返回事件，
- *   由 session 决定怎么演。
+ * - 本文件不切场景、不放音效：updateBoard / updateMilestones / complete
+ *   只返回事件，由 session 决定怎么演。
  *
- * 数值全在下面的 BOARD 与 REQUEST_KINDS 里（constants.ts 归别人管，
- * 本轮不动它，等定型了再搬过去）。
+ * 节奏数留在本文件 BOARD（与 constants.BOARD 镜像）；内容表在下面。
  */
 
 // ── 数值 ────────────────────────────────────────────────────────────
 
+/**
+ * 探针磁带跑 300 tick = 5s。updateBoard 只有在贴单那一帧才抽 rng，所以
+ * 只要第一张条子晚于这个窗口，磁带哈希就跟请求板无关。REQUESTS.firstS
+ * 被改到窗口以内的话 quietThroughProbe() 会翻 false，单测据此报警。
+ */
+export const PROBE_QUIET_S = 5;
+
 export const BOARD = {
   /** 板上同时挂着的条子上限 */
   slots: 3,
-  /** 开局多久贴出第一张（秒）。晚于首次产出、早于首场风暴 */
+  /** 开局多久贴出第一张（秒）。晚于探针窗口、早于首场风暴 */
   firstS: 12,
   /** 贴单间隔（秒）：每贴一张缩 postDecayS，下限 postMinS */
   postGapS: 26,
@@ -54,6 +63,11 @@ export const BOARD = {
   /** ttl 剩余低于这个比例算「快过期了」，HUD 拿去闪红 */
   urgentAt: 0.3,
 } as const;
+
+/** 首张条子是否晚于探针窗口（真 = 前 5s 不贴单也不抽 rng） */
+export function quietThroughProbe(): boolean {
+  return BOARD.firstS > PROBE_QUIET_S;
+}
 
 /** 一种材料的需求区间（含端点，实际数量再按难度档加码） */
 export type WantSpec = {
@@ -165,6 +179,78 @@ export const REQUEST_KINDS: readonly RequestKind[] = [
   },
 ];
 
+// ── 里程碑 ──────────────────────────────────────────────────────────
+
+/**
+ * 里程碑读的四个外部量。都是「越大越好」的整数，缺项按 0 算（= 还没达成），
+ * 所以 session 可以先只传自己手边有的那几项，剩下的以后再接。
+ */
+export type MilestoneTrack = "purifiers" | "storms" | "tiles" | "day";
+
+export const MILESTONE_TRACKS = ["purifiers", "storms", "tiles", "day"] as const satisfies readonly MilestoneTrack[];
+
+export type MilestoneId = "first-purifier" | "storm-weathered" | "raft-12" | "day-3";
+
+export type Milestone = {
+  readonly id: MilestoneId;
+  readonly track: MilestoneTrack;
+  /** 达到这个数就算达成 */
+  readonly goal: number;
+  readonly title: string;
+  /** 没达成时 HUD 挂的一行目标 */
+  readonly hint: string;
+  /** 达成时进日记的一句话 */
+  readonly note: string;
+  /** 达成奖励：一小笔材料，比一张条子略厚，走 gainAll 入库 */
+  readonly reward: Cost;
+};
+
+/**
+ * 目标链。顺序即达成顺序——同一帧同时满足多条时按这里的先后依次结算，
+ * 事件顺序因此可复现。
+ */
+export const MILESTONES: readonly Milestone[] = [
+  {
+    id: "first-purifier",
+    track: "purifiers",
+    goal: 1,
+    title: "第一台净水机",
+    hint: "造一台净水机，别再靠攒雨水过日子",
+    note: "第一台净水机烧起来了。海水进去，能喝的水出来——这事居然真让我们办成了。",
+    reward: { wood: 4, rope: 2 },
+  },
+  {
+    id: "storm-weathered",
+    track: "storms",
+    goal: 1,
+    title: "撑过第一场风暴",
+    hint: "把外圈绑牢，熬过第一场风暴",
+    note: "风停了，筏子还在。少了两块板子，人一个没少，这买卖不亏。",
+    reward: { wood: 6, metal: 2 },
+  },
+  {
+    id: "raft-12",
+    track: "tiles",
+    goal: 12,
+    title: "十二格的家",
+    hint: "把木筏铺到 12 格",
+    note: "第十二块板子钉下去，走一圈要拐三个弯了。以前叫木筏，现在勉强能叫地方。",
+    reward: { water: 8, food: 8 },
+  },
+  {
+    id: "day-3",
+    track: "day",
+    goal: 3,
+    title: "活到第三天",
+    hint: "撑到第 3 天",
+    note: "第三个早上。水还有，粮还有，人还在数日子——那就继续数下去。",
+    reward: { water: 10, food: 10 },
+  },
+];
+
+/** 不是某个岛民在说话、而是整条筏子的事时，日记用这个署名 */
+const RAFT_WHO = "木筏";
+
 // ── 状态 ────────────────────────────────────────────────────────────
 
 export type RequestState = "open" | "done" | "expired";
@@ -196,6 +282,21 @@ export type DiaryEntry = {
   readonly tone: DiaryTone;
 };
 
+/**
+ * 里程碑状态。`best` 只涨不跌：拆了净水机、风暴啃掉两格之后，已经达成的
+ * 里程碑不会被撤销，也不会因为数值回落再发一次奖励。
+ */
+export type MilestoneState = {
+  /** 已达成的 id，按达成先后排列 */
+  done: MilestoneId[];
+  /** 各里程碑达成时的板上秒数（state.elapsed）；没达成的键不存在 */
+  at: Partial<Record<MilestoneId, number>>;
+  /** 每条轨道见过的最大值 */
+  best: Record<MilestoneTrack, number>;
+  /** noteStorm() 累计的风暴场数，facts.storms 没传时用它 */
+  storms: number;
+};
+
 export type BoardState = {
   elapsed: number;
   /** 还挂在板上的条子（交掉/作废的会立刻移出） */
@@ -212,6 +313,8 @@ export type BoardState = {
   streak: number;
   bestStreak: number;
   diary: DiaryEntry[];
+  /** 目标链：与条子共用日记，但走 updateMilestones 那条旁路推进 */
+  milestones: MilestoneState;
 };
 
 export type BoardEvent =
@@ -226,7 +329,25 @@ export type BoardEvent =
       readonly got: Cost;
       readonly streak: number;
     }
+  | {
+      readonly type: "milestone-done";
+      readonly milestone: Milestone;
+      /** 真正入库的量（仓库满了会少于 milestone.reward） */
+      readonly got: Cost;
+      /** 已达成 / 总数，HUD 拿去画目标链进度 */
+      readonly done: number;
+      readonly total: number;
+    }
   | { readonly type: "diary"; readonly entry: DiaryEntry };
+
+export function createMilestones(): MilestoneState {
+  return {
+    done: [],
+    at: {},
+    best: { purifiers: 0, storms: 0, tiles: 0, day: 0 },
+    storms: 0,
+  };
+}
 
 export function createBoard(): BoardState {
   return {
@@ -240,6 +361,7 @@ export function createBoard(): BoardState {
     streak: 0,
     bestStreak: 0,
     diary: [],
+    milestones: createMilestones(),
   };
 }
 
@@ -255,6 +377,12 @@ export function resetBoard(state: BoardState): void {
   state.streak = fresh.streak;
   state.bestStreak = fresh.bestStreak;
   state.diary.length = 0;
+  // 就地清，别换对象：HUD 可能正抓着 board.milestones 画目标链
+  const ms = state.milestones;
+  ms.done.length = 0;
+  for (const key of Object.keys(ms.at) as MilestoneId[]) delete ms.at[key];
+  for (const track of MILESTONE_TRACKS) ms.best[track] = 0;
+  ms.storms = 0;
 }
 
 // ── 推进 ────────────────────────────────────────────────────────────
@@ -485,11 +613,155 @@ export function complete(state: BoardState, res: Resources, id: string): Complet
   if (bonus) {
     events.push({
       type: "diary",
-      entry: pushDiary(state, "木筏", `连着交了 ${state.streak} 单，大伙儿多塞了点谢礼。`, "good"),
+      entry: pushDiary(state, RAFT_WHO, `连着交了 ${state.streak} 单，大伙儿多塞了点谢礼。`, "good"),
     });
   }
 
   return { ok: true, request: req, paid: { ...req.want }, reward, got, streak: state.streak, bonus, events };
+}
+
+// ── 目标链 ──────────────────────────────────────────────────────────
+
+/**
+ * 里程碑读的世界事实。全部可选：session 现在只数得出建筑和天数，风暴那项
+ * 先空着（或者走 noteStorm 记），缺项按 0 算，也就是「还没达成」。
+ */
+export type MilestoneFacts = {
+  /** 第几天，从 1 开始 */
+  readonly day?: number;
+  /** 木筏格数（含开局那 9 格） */
+  readonly tiles?: number;
+  /** 已建成的净水机座数 */
+  readonly purifiers?: number;
+  /** 撑过的风暴场数；不传就用 noteStorm 累计的那个 */
+  readonly storms?: number;
+};
+
+function factOf(state: MilestoneState, facts: MilestoneFacts, track: MilestoneTrack): number {
+  const raw =
+    track === "day"
+      ? (facts.day ?? 0)
+      : track === "tiles"
+        ? (facts.tiles ?? 0)
+        : track === "purifiers"
+          ? (facts.purifiers ?? 0)
+          : Math.max(facts.storms ?? 0, state.storms);
+  return Number.isFinite(raw) ? Math.max(0, Math.floor(raw)) : 0;
+}
+
+/** 这条轨道到目前为止见过的最大值（不写状态，milestoneProgress 用它算进度） */
+function seenOn(state: MilestoneState, facts: MilestoneFacts, track: MilestoneTrack): number {
+  return Math.max(state.best[track], factOf(state, facts, track));
+}
+
+/**
+ * 记一场撑过去的风暴。session 还没数风暴时，这就是那条留出来的接口：
+ * threats 那边收到 storm 结算完的事件时调一次，`storm-weathered` 就会在下一次
+ * updateMilestones 里达成。也可以改走 facts.storms，两条路取大值，不会重复计。
+ */
+export function noteStorm(state: BoardState, n = 1): void {
+  if (!Number.isFinite(n) || n <= 0) return;
+  state.milestones.storms += Math.floor(n);
+}
+
+/**
+ * 推进目标链：把世界事实喂进来，达成的里程碑发奖励 + 记日记。
+ *
+ * 和 updateBoard 是两条独立的路——这里不吃 dt、不抽 rng、不碰板上的条子，
+ * 一帧调几次都一样（同一个里程碑只会结算一次，`done` 里有就直接跳过）。
+ * 奖励走 gainAll：仓库满了就少入库一点，从不失败、也不会扣成负数。
+ *
+ * @returns 本次新达成的里程碑事件（顺序 = MILESTONES 的表序）
+ */
+export function updateMilestones(state: BoardState, res: Resources, facts: MilestoneFacts = {}): BoardEvent[] {
+  const ms = state.milestones;
+  for (const track of MILESTONE_TRACKS) {
+    const now = factOf(ms, facts, track);
+    if (now > ms.best[track]) ms.best[track] = now;
+  }
+
+  const events: BoardEvent[] = [];
+  for (const m of MILESTONES) {
+    if (ms.at[m.id] !== undefined) continue;
+    if (ms.best[m.track] < m.goal) continue;
+
+    ms.done.push(m.id);
+    ms.at[m.id] = state.elapsed;
+    const got = gainAll(res, m.reward);
+    events.push({
+      type: "milestone-done",
+      milestone: m,
+      got,
+      done: ms.done.length,
+      total: MILESTONES.length,
+    });
+    events.push({ type: "diary", entry: pushDiary(state, RAFT_WHO, m.note, "good") });
+  }
+  return events;
+}
+
+export type MilestoneProgress = {
+  readonly id: MilestoneId;
+  readonly title: string;
+  /** 没达成时挂的目标文案，达成后 HUD 一般换成 note */
+  readonly hint: string;
+  readonly reward: Cost;
+  /** 当前值（取历史最大，不会因为拆房回落） */
+  readonly have: number;
+  readonly goal: number;
+  /** have / goal 截到 0–1 */
+  readonly ratio: number;
+  readonly done: boolean;
+  /** 达成时的板上秒数，没达成是 null */
+  readonly at: number | null;
+};
+
+/** 整条目标链的进度，表序即展示顺序 */
+export function milestoneProgress(state: BoardState, facts: MilestoneFacts = {}): MilestoneProgress[] {
+  const ms = state.milestones;
+  return MILESTONES.map((m) => {
+    const at = ms.at[m.id];
+    const have = Math.max(seenOn(ms, facts, m.track), at !== undefined ? m.goal : 0);
+    return {
+      id: m.id,
+      title: m.title,
+      hint: m.hint,
+      reward: { ...m.reward },
+      have,
+      goal: m.goal,
+      ratio: m.goal > 0 ? Math.max(0, Math.min(1, have / m.goal)) : 1,
+      done: at !== undefined,
+      at: at ?? null,
+    };
+  });
+}
+
+/** 下一个还没达成的里程碑，HUD 拿去挂「当前目标」；全达成返回 null */
+export function nextMilestone(state: BoardState, facts: MilestoneFacts = {}): MilestoneProgress | null {
+  return milestoneProgress(state, facts).find((p) => !p.done) ?? null;
+}
+
+export function milestoneDone(state: BoardState, id: MilestoneId): boolean {
+  return state.milestones.at[id] !== undefined;
+}
+
+export type MilestoneSummary = {
+  readonly done: number;
+  readonly total: number;
+  /** 完成度 0–1 */
+  readonly ratio: number;
+  /** 最近达成的那个，没有就是 null */
+  readonly latest: MilestoneId | null;
+};
+
+export function milestoneSummary(state: BoardState): MilestoneSummary {
+  const done = state.milestones.done;
+  return {
+    done: done.length,
+    total: MILESTONES.length,
+    ratio: MILESTONES.length > 0 ? done.length / MILESTONES.length : 1,
+    latest: done.length > 0 ? done[done.length - 1] : null,
+  };
 }
 
 // ── 给 HUD / 结算的只读派生 ─────────────────────────────────────────

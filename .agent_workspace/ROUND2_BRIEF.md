@@ -14,3 +14,11 @@ Round 1 已接线：日记卡、请求板（Q/E）、道具袋、14 件剪影。
 ## 不要做
 
 官方 IP；改 TILE/花费/风暴；扩 `snapshot()`；搬回根 `src/`；静默换模型。
+
+## Round 2 收口（父调度器）
+
+已接线：`look` 只换外观；袋只收 `rollItemDrop` 杂货（四建材不再双写）；
+`updateMilestones` + `noteStorm`；HUD `bagSlots` / `questDone`。
+`npm test` 17/17，探针仍 `728b59b5`。
+
+下轮（Round 3）：ITEM_USE 点袋吃喝、浏览器走完一局、SOTA 庆祝音效、合 main 重部署 Pages。

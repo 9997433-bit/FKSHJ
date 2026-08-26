@@ -109,7 +109,7 @@ export function hasUnlocked(state: StoryState, id: string): boolean {
   return state.unlocked.includes(id);
 }
 
-/** 解锁进度，UI 显示「3 / 10」用。 */
+/** 解锁进度，UI 显示「3 / 14」用。 */
 export function storyProgress(state: StoryState): { readonly unlocked: number; readonly total: number } {
   return { unlocked: state.unlocked.length, total: BEAT_COUNT };
 }

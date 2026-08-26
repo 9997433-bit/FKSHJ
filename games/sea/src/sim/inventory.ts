@@ -1,4 +1,13 @@
-import { compareItems, ITEM_IDS, ITEMS, type ItemBundle, type ItemId } from "../data/catalog";
+import {
+  compareItems,
+  ITEM_IDS,
+  ITEMS,
+  pickDropByRoll,
+  type ItemBundle,
+  type ItemId,
+} from "../data/catalog";
+import { ITEM_DROP } from "../data/constants";
+import type { Rng } from "./rules";
 
 /**
  * 道具袋：`data/catalog.ts` 那些东西的容器。
@@ -15,7 +24,8 @@ import { compareItems, ITEM_IDS, ITEMS, type ItemBundle, type ItemId } from "../
  *   空格，`capacityFor` 是问这个的唯一正确姿势。
  * - **可确定性**：同样的输入永远得到同样的结果和同样的顺序。凡是要按顺序
  *   走的地方（列举、快照、多物品操作）一律按 catalog 的 `ITEM_IDS` 排，
- *   不吃 Map 的插入顺序。
+ *   不吃 Map 的插入顺序。掉落也算在内：随机只走传进来的 `Rng`，本文件不碰
+ *   `Math.random`，同种子同保底状态的一串捞取必出同一串东西。
  *
  * 数量一律是非负整数：小数按 `Math.floor` 截断，负数和 NaN 视为非法参数，
  * 直接失败返回而不抛异常（调用点大多在每帧循环里，抛了没人接）。
@@ -285,4 +295,59 @@ export function restoreInventory(raw: unknown, opts: { readonly maxSlots?: numbe
   if (typeof raw !== "object" || raw === null) return createInventory({}, opts);
   const bundle = sanitizeBundle(raw as Record<string, unknown>);
   return createInventory(bundle, opts);
+}
+
+// ── 捞取附带掉落 ────────────────────────────────────────────────────
+
+/**
+ * 掉落保底计数：`misses` = 连着几次捞取没出货。
+ *
+ * 一局一只，跟着 session 走（谁调 `rollItemDrop` 谁持有）。纯数据，
+ * 存档想带上直接 JSON 序列化，读回来交给 `restoreItemPity` 洗一遍。
+ */
+export type ItemPity = { misses: number };
+
+export function createItemPity(): ItemPity {
+  return { misses: 0 };
+}
+
+/** 存档回读：不是非负整数就从 0 重新数，坏计数顶多让玩家多捞两把。 */
+export function restoreItemPity(raw: unknown): ItemPity {
+  const value = typeof raw === "object" && raw !== null ? (raw as { misses?: unknown }).misses : raw;
+  const misses = typeof value === "number" ? normalizeCount(value) : null;
+  return { misses: misses ?? 0 };
+}
+
+/**
+ * 捞一把附带掉一件东西：中了返回 id，没中返回 null。
+ *
+ * 节奏全读 `constants.ITEM_DROP`：每次 `chance` 的概率出货，连着
+ * `pityScoops` 次空手则下一次必出（`pityScoops` ≤ 0 视为不保底）。
+ * 抽中哪一件按 catalog 的 `dropWeight` 加权，表在
+ * `data/catalog.ts` 的 `pickDropByRoll`——建材权重是 0，所以附带掉落
+ * 只出正菜之外的杂货。
+ *
+ * 两条确定性纪律：
+ * - 随机只走传进来的 `rng`，且**每次固定消耗 2 次**（命中判定 1 次 +
+ *   加权抽签 1 次），出不出货都一样。掉率怎么调都不会挪动 rng 序列的
+ *   位置，风暴和海盗的复现不受物品表牵连。
+ * - `pity` 由本函数推进：没出货 `misses += 1`，出货清零。数的是「掷骰子」
+ *   而不是「装进袋子」——袋子满了是调用方（session）拿 `addItem` 处理的
+ *   事，那一件按原子语义整件丢弃，保底不会因此白攒。
+ *
+ * 接线点是 session.tryScoop() 里捞取成功之后，用 session.rng；本函数
+ * 不碰袋子、不碰 `Resources`。
+ */
+export function rollItemDrop(rng: Rng, pity: ItemPity): ItemId | null {
+  const hitRoll = rng();
+  const pickRoll = rng();
+
+  const misses = normalizeCount(pity.misses) ?? 0;
+  const forced = ITEM_DROP.pityScoops > 0 && misses >= ITEM_DROP.pityScoops;
+  const hit = forced || (Number.isFinite(hitRoll) && hitRoll < ITEM_DROP.chance);
+
+  const id = hit ? pickDropByRoll(pickRoll) : null;
+  // 掉落表整张为空时 id 会是 null，那就当这一把没出货，保底接着攒
+  pity.misses = id === null ? misses + 1 : 0;
+  return id;
 }

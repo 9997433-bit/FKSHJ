@@ -65,6 +65,14 @@ export const STORY_BEATS: readonly StoryBeat[] = [
     holdS: HOLD_JOURNAL,
   },
   {
+    id: "twelve-planks",
+    kind: "journal",
+    title: "日志 · 十二块板子",
+    body: "从这头走到那头要数六步了。绳结全换成双套，风推过来的时候整片一起晃，不再是各晃各的。",
+    require: { buildings: { floor: 12 } },
+    holdS: HOLD_JOURNAL,
+  },
+  {
     id: "lazy-net",
     kind: "journal",
     title: "日志 · 会自己干活的网兜",
@@ -81,11 +89,29 @@ export const STORY_BEATS: readonly StoryBeat[] = [
     holdS: HOLD_BROADCAST,
   },
   {
+    // 和上一条电台同源，但要机器真跑过一阵才有得记，所以多压一道 elapsed。
+    id: "still-drip",
+    kind: "journal",
+    title: "日志 · 一夜接了大半桶",
+    body: "蒸汽绕着铁皮走一圈，落下来就是能喝的。守着听了半天那个滴答声，比什么都安心。",
+    require: { buildings: { purifier: 1 }, elapsed: 90 },
+    holdS: HOLD_JOURNAL,
+  },
+  {
     id: "line-in-water",
     kind: "journal",
     title: "日志 · 钓上来的第一条",
     body: "巴掌大，刺多，煮汤刚好三个人分。把鱼骨留下了，磨尖了能当钩子。",
     require: { buildings: { fish: 1 } },
+    holdS: HOLD_JOURNAL,
+  },
+  {
+    // 首场风暴 50 秒预警、54 秒落下；能读到这条就说明人和指挥中心都还在。
+    id: "after-storm",
+    kind: "journal",
+    title: "日志 · 风停之后",
+    body: "外圈缺了一角，桶滚下去两只。清点完发现人还齐，剩下的都能再钉回来——先补，别急着数损失。",
+    require: { elapsed: 60 },
     holdS: HOLD_JOURNAL,
   },
   {
@@ -102,6 +128,14 @@ export const STORY_BEATS: readonly StoryBeat[] = [
     title: "日志 · 铁牙",
     body: "拆了三只铁皮罐，架起一门会自己转的短管子。但愿它开火的次数越少越好。",
     require: { buildings: { turret: 1 } },
+    holdS: HOLD_JOURNAL,
+  },
+  {
+    id: "third-morning",
+    kind: "journal",
+    title: "日志 · 第三个早上",
+    body: "手上的口子结了痂，咸水一泡还是疼。今天的活儿定得很小：把昨夜松掉的那几个结重新打一遍。",
+    require: { day: 3 },
     holdS: HOLD_JOURNAL,
   },
   {
@@ -130,5 +164,5 @@ export const STORY_BEATS: readonly StoryBeat[] = [
   },
 ];
 
-/** 表里一共几条，UI 显示「已解锁 3 / 10」用。 */
+/** 表里一共几条，UI 显示「已解锁 3 / 14」用。 */
 export const BEAT_COUNT = STORY_BEATS.length;

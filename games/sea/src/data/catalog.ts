@@ -16,6 +16,11 @@
  *
  * `stack` 是**单格**堆叠上限，不是袋子总容量；袋子有几格由
  * `sim/inventory.ts` 的 `maxSlots` 决定。
+ *
+ * `dropWeight` 是**捞取附带掉落**的加权抽签权重（0 = 不从海里出）。命中率与
+ * 保底节奏在 `data/constants.ts` 的 `ITEM_DROP`，抽签动作在
+ * `sim/inventory.ts` 的 `rollItemDrop`；本文件只出「抽中哪一件」这张表，
+ * 不掷骰子——`pickDropByRoll` 收一个 [0, 1) 的数，同样的数永远同样的结果。
  */
 
 // ── 标签 ────────────────────────────────────────────────────────────
@@ -60,7 +65,9 @@ export type ItemId =
   | "wrench"
   | "flare"
   | "compass"
-  | "medkit";
+  | "medkit"
+  | "netScrap"
+  | "glassFloat";
 
 export type ItemSpec = {
   readonly id: ItemId;
@@ -72,11 +79,20 @@ export type ItemSpec = {
   readonly stack: number;
   /** 至少一个标签，顺序即显示顺序 */
   readonly tags: readonly ItemTag[];
+  /**
+   * 捞取附带掉落的权重（相对值，非概率）；0 = 海里不出，只能从别处来。
+   * 四种建材是 0：它们本来就是捞取的**正菜**（入 `Resources` 同时进袋），
+   * 附带掉落这一发是给「正菜之外的惊喜」留的，再掉一次木板没有意义。
+   */
+  readonly dropWeight: number;
 };
 
 /**
  * 物品表。书写顺序即全局排序顺序（见文件头），先建材、再吃喝、后工具。
  * 堆叠上限的手感：散装原料 99，成件的杂物十几件，独一份的家伙事儿 1。
+ *
+ * `dropWeight` 的梯度：常见杂货十几、耐用工具个位数、留念的独一份 1；
+ * 数字是相对值，改一个就等于改了整张表的相对稀有度。
  */
 export const ITEMS: Record<ItemId, ItemSpec> = {
   wood: {
@@ -85,6 +101,7 @@ export const ITEMS: Record<ItemId, ItemSpec> = {
     desc: "拆船拆下来的旧木料，泡过海水也还钉得住",
     stack: 99,
     tags: ["salvage", "material"],
+    dropWeight: 0,
   },
   plastic: {
     id: "plastic",
@@ -92,6 +109,7 @@ export const ITEMS: Record<ItemId, ItemSpec> = {
     desc: "海上最不缺的东西，烤软了哪儿漏补哪儿",
     stack: 99,
     tags: ["salvage", "material"],
+    dropWeight: 0,
   },
   metal: {
     id: "metal",
@@ -99,6 +117,7 @@ export const ITEMS: Record<ItemId, ItemSpec> = {
     desc: "锈得掉渣的铁皮和螺栓，炮塔的命根子",
     stack: 99,
     tags: ["salvage", "material"],
+    dropWeight: 0,
   },
   rope: {
     id: "rope",
@@ -106,6 +125,7 @@ export const ITEMS: Record<ItemId, ItemSpec> = {
     desc: "一段还没沤烂的缆绳，捆什么都指着它",
     stack: 99,
     tags: ["salvage", "material"],
+    dropWeight: 0,
   },
   tarp: {
     id: "tarp",
@@ -113,6 +133,7 @@ export const ITEMS: Record<ItemId, ItemSpec> = {
     desc: "从货船棚顶扒下来的一大块，挡雨也接雨",
     stack: 20,
     tags: ["salvage", "material"],
+    dropWeight: 14,
   },
   barrel: {
     id: "barrel",
@@ -120,6 +141,7 @@ export const ITEMS: Record<ItemId, ItemSpec> = {
     desc: "洗过三遍还有柴油味，能装水也能当浮筒",
     stack: 8,
     tags: ["salvage", "container"],
+    dropWeight: 10,
   },
   kelp: {
     id: "kelp",
@@ -127,6 +149,7 @@ export const ITEMS: Record<ItemId, ItemSpec> = {
     desc: "晒硬的海带，嚼着像皮筋，好歹顶饿",
     stack: 30,
     tags: ["food"],
+    dropWeight: 16,
   },
   driedFish: {
     id: "driedFish",
@@ -134,6 +157,7 @@ export const ITEMS: Record<ItemId, ItemSpec> = {
     desc: "硬得能敲钉子，泡开了算一顿正经饭",
     stack: 20,
     tags: ["food"],
+    dropWeight: 12,
   },
   freshWater: {
     id: "freshWater",
@@ -141,6 +165,7 @@ export const ITEMS: Record<ItemId, ItemSpec> = {
     desc: "一囊刚滤好的淡水，别搁太阳底下晒",
     stack: 12,
     tags: ["drink", "container"],
+    dropWeight: 8,
   },
   hook: {
     id: "hook",
@@ -148,6 +173,7 @@ export const ITEMS: Record<ItemId, ItemSpec> = {
     desc: "铁丝拧的倒刺钩，钓鱼台的耗材",
     stack: 10,
     tags: ["tool"],
+    dropWeight: 10,
   },
   wrench: {
     id: "wrench",
@@ -155,6 +181,7 @@ export const ITEMS: Record<ItemId, ItemSpec> = {
     desc: "缺了口的老扳手，修起东西来快一截",
     stack: 1,
     tags: ["tool"],
+    dropWeight: 2,
   },
   flare: {
     id: "flare",
@@ -162,6 +189,7 @@ export const ITEMS: Record<ItemId, ItemSpec> = {
     desc: "一发照亮半片海，顺带把海盗也招过来",
     stack: 5,
     tags: ["tool"],
+    dropWeight: 3,
   },
   compass: {
     id: "compass",
@@ -169,6 +197,7 @@ export const ITEMS: Record<ItemId, ItemSpec> = {
     desc: "指针卡过一次，如今只在天晴时准",
     stack: 1,
     tags: ["tool", "relic"],
+    dropWeight: 1,
   },
   medkit: {
     id: "medkit",
@@ -176,6 +205,24 @@ export const ITEMS: Record<ItemId, ItemSpec> = {
     desc: "纱布、碘酒，外加两片过期止痛药",
     stack: 5,
     tags: ["medical"],
+    dropWeight: 4,
+  },
+  // 下面两件是后加的，按文件头的规矩接在末尾：往中间插会改全局顺序。
+  netScrap: {
+    id: "netScrap",
+    name: "破渔网",
+    desc: "缠成一团的尼龙网，拆开是绳，兜起来是网",
+    stack: 12,
+    tags: ["salvage", "material", "tool"],
+    dropWeight: 9,
+  },
+  glassFloat: {
+    id: "glassFloat",
+    name: "玻璃浮球",
+    desc: "老渔船挂网用的绿玻璃球，漂了不知多少年还没碎",
+    stack: 6,
+    tags: ["salvage", "relic"],
+    dropWeight: 5,
   },
 };
 
@@ -226,4 +273,51 @@ export function itemsByTag(tag: ItemTag): readonly ItemId[] {
  */
 export function compareItems(a: ItemId, b: ItemId): number {
   return (ITEM_ORDER.get(a) ?? ITEM_IDS.length) - (ITEM_ORDER.get(b) ?? ITEM_IDS.length);
+}
+
+// ── 掉落表 ──────────────────────────────────────────────────────────
+
+/** 权重归一化：负数 / NaN / Infinity 一律当 0，坏数据顶多让某件东西不出。 */
+function dropWeightRaw(id: ItemId): number {
+  const w = ITEMS[id].dropWeight;
+  return Number.isFinite(w) && w > 0 ? w : 0;
+}
+
+/** 海里出得来的东西，按全局顺序（权重 0 的不在内）。 */
+export const DROP_IDS: readonly ItemId[] = ITEM_IDS.filter((id) => dropWeightRaw(id) > 0);
+
+/** `DROP_IDS` 的权重之和，抽签的分母。表空时为 0。 */
+export const TOTAL_DROP_WEIGHT: number = DROP_IDS.reduce((sum, id) => sum + dropWeightRaw(id), 0);
+
+export function dropWeightOf(id: ItemId): number {
+  return dropWeightRaw(id);
+}
+
+export function canDrop(id: ItemId): boolean {
+  return dropWeightRaw(id) > 0;
+}
+
+/** 某件东西被抽中的概率（已命中掉落的前提下）。HUD / 图鉴报稀有度用。 */
+export function dropChanceOf(id: ItemId): number {
+  return TOTAL_DROP_WEIGHT > 0 ? dropWeightRaw(id) / TOTAL_DROP_WEIGHT : 0;
+}
+
+/**
+ * 加权抽签：`u` 是 [0, 1) 的均匀随机数，返回抽中的 id。
+ *
+ * 本函数**不掷骰子**——骰子由调用方（`sim/inventory.ts` 的 `rollItemDrop`）
+ * 从 session 的 `Rng` 里取，同一个 `u` 永远给同一件东西，单测直接喂常数。
+ * `u` 越界按 [0, 1) 钳；掉落表为空返回 null。
+ */
+export function pickDropByRoll(u: number): ItemId | null {
+  if (DROP_IDS.length === 0 || TOTAL_DROP_WEIGHT <= 0) return null;
+  const t = Number.isFinite(u) ? Math.min(0.999999999, Math.max(0, u)) : 0;
+  let acc = 0;
+  const target = t * TOTAL_DROP_WEIGHT;
+  for (const id of DROP_IDS) {
+    acc += dropWeightRaw(id);
+    if (target < acc) return id;
+  }
+  // 浮点累加差一丁点就会走到这儿，落回最后一格而不是返回 null
+  return DROP_IDS[DROP_IDS.length - 1];
 }
