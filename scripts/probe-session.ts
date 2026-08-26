@@ -1,6 +1,7 @@
 import { PLAYER } from "../src/data/constants";
 import { Sfx } from "../src/fx/audio";
 import { Session } from "../src/session";
+import { seedWorld } from "../src/world/levels";
 
 type Steer = -1 | 0 | 1;
 type TapeEvent = {
@@ -69,7 +70,7 @@ function snapshot(session: Session) {
 }
 
 function replay(runId: number): ReturnType<typeof snapshot> {
-  const session = new Session(new Sfx(), runId);
+  const session = new Session(new Sfx(), runId, seedWorld(runId, 0));
   let tapeIndex = 0;
 
   for (let frame = 0; frame < TOTAL_FRAMES; frame++) {
@@ -95,7 +96,7 @@ function replay(runId: number): ReturnType<typeof snapshot> {
 }
 
 function probeLongRun(runId: number) {
-  const session = new Session(new Sfx(), runId);
+  const session = new Session(new Sfx(), runId, seedWorld(runId, 0));
   // This probe measures world coverage, so collisions must not end the run early.
   session.player.invuln = Number.POSITIVE_INFINITY;
 

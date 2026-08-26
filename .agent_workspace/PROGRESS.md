@@ -18,9 +18,9 @@
 | 轮次 | 状态 | 说明 |
 | --- | --- | --- |
 | 准备 | 完成 | 规格、所有权、可玩骨架 |
-| Round 1 | 完成 | 6 路已合并；见 ROUND1_BRIEF.md。14 测 + smoke/probe/build 绿 |
-| Round 2 | 派发中 | 云端 VM 上限 3：3 云端 + 3 本机 |
-| Round 3 | 未开始 | SOTA 打磨与验收 |
+| Round 1 | 完成 | 见 ROUND1_BRIEF.md |
+| Round 2 | 完成 | 见 ROUND2_BRIEF.md。34 测 + 长局不再空 |
+| Round 3 | 派发中 | 云端 VM 上限 3：3 云端 + 3 本机 |
 | 归档合并 | 未开始 | 结构化 PR |
 
 ## Round 1 派发记录
@@ -40,7 +40,7 @@
 | --- | --- | --- | --- |
 | fable-arch | cloud | `bc-4a967bf5-2bd9-56d2-8c94-7b7dc4a38f3e` | 已完成（CAMERA/FEEL + loop 修复已摘并） |
 | fable-sota | cloud | `bc-993634f2-a713-5fc9-a207-a4f641dc65d4` | 已完成（泳圈绘制 + 静音开关已摘并） |
-| opus-content | cloud | `bc-2ce5cda9-7350-5957-9a67-eaea45bfbec1` | 运行中 |
+| opus-content | cloud | `bc-2ce5cda9-7350-5957-9a67-eaea45bfbec1` | 已完成（流式关卡 / 主题循环 / BGM 已摘并） |
 | opus-core | local | `bc-f33f8ea2-5c35-50b7-9683-9baff7d16890` | 已完成（落水失败 + 换道碰撞已收编） |
 | gpt-test | local | `bc-85d38b55-2e52-5bdc-b07f-833077a49cce` | 已完成（18 测已收编） |
 | gpt-probe | local | `bc-dc2e5c29-59d2-5a8c-81db-9e1a8e89959d` | 已完成（长局空关卡已记录，脚本已收编） |

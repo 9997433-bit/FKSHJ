@@ -1,4 +1,5 @@
-import { CANVAS } from "../data/constants";
+import { CANVAS, LANES } from "../data/constants";
+import { project } from "../game/camera";
 import type { ThemePaint } from "../ui/theme";
 
 const HORIZON = CANVAS.h * 0.18;
@@ -287,7 +288,28 @@ function drawTower(
   ctx.stroke();
 }
 
-/** 泡沫带：两层正弦叠加，速度越快浪越急。 */
+/**
+ * 泡沫带只活在水槽里：横向半宽取「最外侧车道中心再外半条道」，
+ * 比滑道地板边缘（track.ts 的 2.85 条道）内收一截，
+ * 所以浪线不会切到滑道墙上，就算滑道稍微改宽也留了余量。
+ */
+const FOAM_HALF = (LANES.max + 0.5) * LANES.width;
+/** 浪线只铺在相机近处的这一段纵深里（世界单位）。 */
+const FOAM_NEAR = 40;
+const FOAM_FAR = 560;
+const FOAM_BANDS = 6;
+/** 每条浪线横向采样段数：够画出两层正弦，又不至于每帧几百个点。 */
+const FOAM_SEGS = 12;
+/** 浪线朝相机涌来的速度（世界单位/秒）。 */
+const FOAM_FLOW = 96;
+
+/**
+ * 泡沫带：两层正弦叠加，速度越快浪越急。
+ *
+ * 浪线沿滑道横向铺开后交给 `project` 投影，于是它跟着滑道弯曲、
+ * 近大远小，并且被 FOAM_HALF 夹在水槽内——不会再出现一条横贯全屏、
+ * 像海挡在滑道前面的浪。振幅按投影缩放，近处的浪才显得高。
+ */
 export function drawFoam(
   ctx: CanvasRenderingContext2D,
   theme: ThemePaint,
@@ -295,19 +317,38 @@ export function drawFoam(
   speed01 = 0.3,
 ): void {
   const rush = 1 + speed01 * 1.6;
+  const span = (FOAM_FAR - FOAM_NEAR) / FOAM_BANDS;
+  const scroll = (((time * FOAM_FLOW * rush) % span) + span) % span;
+
+  ctx.save();
   ctx.strokeStyle = theme.foam;
-  ctx.lineWidth = 2;
-  for (let i = 0; i < 6; i++) {
-    ctx.globalAlpha = 0.35 - i * 0.02;
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+  for (let i = 0; i < FOAM_BANDS; i++) {
+    const z = FOAM_NEAR + (i + 1) * span - scroll;
+    // 远端淡入、滑到脚下淡出，浪线的生灭就看不出接缝
+    const u = (z - FOAM_NEAR) / (FOAM_FAR - FOAM_NEAR);
+    const fade = Math.min(1, u * 5) * Math.min(1, (1 - u) * 4);
+    if (fade <= 0) continue;
+
     ctx.beginPath();
-    const y = CANVAS.h * 0.72 + i * 14 + Math.sin(time * 2 * rush + i) * 4;
-    ctx.moveTo(0, y);
-    for (let x = 0; x <= CANVAS.w; x += 24) {
-      const a = Math.sin(x * 0.02 + time * 3 * rush + i) * 6;
-      const b = Math.sin(x * 0.007 - time * 1.7 * rush + i * 0.6) * 4 * rush;
-      ctx.lineTo(x, y + a + b);
+    let width = 2;
+    for (let k = 0; k <= FOAM_SEGS; k++) {
+      const laneX = -FOAM_HALF + (2 * FOAM_HALF * k) / FOAM_SEGS;
+      const a = Math.sin(laneX * 0.02 + time * 3 * rush + i) * 6;
+      const b = Math.sin(laneX * 0.007 - time * 1.7 * rush + i * 0.6) * 4 * rush;
+      const p = project(laneX, z);
+      if (k === 0) {
+        width = Math.max(1, 2.2 * p.s);
+        ctx.moveTo(p.x, p.y + (a + b) * p.s);
+      } else {
+        ctx.lineTo(p.x, p.y + (a + b) * p.s);
+      }
     }
+    ctx.globalAlpha = 0.34 * fade;
+    ctx.lineWidth = width;
     ctx.stroke();
   }
   ctx.globalAlpha = 1;
+  ctx.restore();
 }

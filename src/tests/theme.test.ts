@@ -11,11 +11,12 @@ describe("distance themes", () => {
     assert.equal(themeIndex(500), 1);
     assert.equal(themeIndex(1000), 2);
     assert.equal(themeIndex(1500), 3);
+    assert.equal(themeIndex(2000), 0);
     assert.equal(themeIndex(99999), 3);
   });
 
   it("returns the theme selected by themeIndex outside the blend band", () => {
-    for (const distance of [0, 200, 500, 700, 1000, 1200, 1500, 99999]) {
+    for (const distance of [0, 200, 500, 700, 1000, 1200, 1500]) {
       assert.equal(themeAt(distance).id, THEME_ORDER[themeIndex(distance)]);
     }
   });

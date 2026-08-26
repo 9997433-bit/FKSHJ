@@ -20,10 +20,11 @@ describe("levels", () => {
     assert.notDeepEqual(a, b);
   });
 
-  it("themeIndex clamps", () => {
+  it("themeIndex cycles after neon", () => {
     assert.equal(themeIndex(0), 0);
     assert.equal(themeIndex(499), 0);
     assert.equal(themeIndex(500), 1);
+    assert.equal(themeIndex(2000), 0);
     assert.equal(themeIndex(99999), 3);
   });
 });
