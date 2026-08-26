@@ -1,4 +1,4 @@
-# Round 1 文件所有权（海上末日重开）
+# Round 2 文件所有权（海上末日重开）
 
 | 代理 | slug | 环境 | 可写路径 |
 | --- | --- | --- | --- |
@@ -10,3 +10,4 @@
 | gpt-probe | gpt-5.6-sol-xhigh-fast | local | `scripts/**` `.agent_workspace/BENCH.md` |
 
 `src/session.ts` / `src/main.ts` 只由父调度器合并。禁止改别人的路径。禁止静默换模型。
+禁止 force-push。云端代理只提交自己的路径，push 前 `git pull --rebase origin agent/crazy-sea-world`。
