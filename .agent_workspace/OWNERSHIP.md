@@ -1,8 +1,8 @@
-# Round 2 文件所有权（10 路）
+# Round 3 文件所有权（10 路）
 
 游戏代码根：`games/sea/`。根 `index.html`、`games/sea/src/session.ts`、`games/sea/src/main.ts` **只由父调度器改**。
 
-先读 `.agent_workspace/ROUND1_BRIEF.md` 和 `.agent_workspace/ROUND2_BRIEF.md`。
+先读 `.agent_workspace/ROUND3_BRIEF.md`。
 
 | 代理 | slug | 环境 | 可写路径 |
 | --- | --- | --- | --- |
