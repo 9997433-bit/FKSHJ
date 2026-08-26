@@ -383,3 +383,27 @@ export class Sfx {
     this.noise(0.9, 0.03, 700, 90, 0.1, 0.5);
   }
 }
+
+/* ------------------------------------------------------------------ *
+ * 共享实例
+ *
+ * 一个 AudioContext 就够整局用了，多开只会撞浏览器上限。会话直接用
+ * 这个单例，静音开关也就天然全局一致；要开第二路（比如菜单独立混音）
+ * 再自己 new Sfx 也不冲突。
+ * ------------------------------------------------------------------ */
+
+export const sfx = new Sfx();
+
+/** 绑在第一次点击 / 按键上。重复调用安全。 */
+export function unlock(): void {
+  sfx.unlock();
+}
+
+/** 切静音，返回切换后是否静音。喇叭按钮直接接它。 */
+export function toggleMute(): boolean {
+  return sfx.toggleMute();
+}
+
+export function isMuted(): boolean {
+  return sfx.isMuted();
+}
