@@ -1,10 +1,10 @@
 /**
  * 物品外观 —— 漂浮物与道具「长什么样」的唯一登记处。
  *
- * 为什么单独一个模块：物品**目录**（名字、描述、用途、掉落）归
- * `data/catalog.ts`，那是玩法数据；这里只回答「画成什么」。目录还没到位
- * 的时候，海面照样有四种建材可捞；目录到了，`registerItemArt` 一行就能
- * 把新道具接上，不用回来改 `world/junk.ts` 的 switch。
+ * 为什么单独一个模块：物品**目录**（名字、描述、堆叠、标签）归
+ * `data/catalog.ts`，那是玩法数据；这里只回答「画成什么」。两边靠 id 对上，
+ * 名字只在目录里写一次。目录加了新物品而这里还没配图也不会崩——
+ * 画成「未知包裹」，配图可以晚一步。
  *
  * 三层结构，越往下越自由：
  *
@@ -24,6 +24,7 @@
  * 颜色只是第二道线索——夜里配色整体压暗，只靠颜色的东西会全糊成一团。
  */
 
+import { ITEMS, ITEM_IDS, type ItemId } from "../data/catalog";
 import { mixHex, withAlpha } from "./ocean";
 
 /** 一件物品的三个色号：本体、暗部（描边与投影）、点缀（盖子、扎带、锈斑）。 */
@@ -56,6 +57,13 @@ export type SilhouetteId =
   | "kelp"
   | "shard"
   | "chest"
+  | "sheet"
+  | "fish"
+  | "hook"
+  | "wrench"
+  | "flare"
+  | "compass"
+  | "medkit"
   | "unknown";
 
 export const SILHOUETTE_IDS: readonly SilhouetteId[] = [
@@ -73,6 +81,13 @@ export const SILHOUETTE_IDS: readonly SilhouetteId[] = [
   "kelp",
   "shard",
   "chest",
+  "sheet",
+  "fish",
+  "hook",
+  "wrench",
+  "flare",
+  "compass",
+  "medkit",
   "unknown",
 ];
 
@@ -733,6 +748,296 @@ function drawChest(ctx: CanvasRenderingContext2D, r: number, ink: ItemInk): void
   ctx.stroke();
 }
 
+/** 油布：叠起来的一块布，一角翻着，边上一个铜扣眼。软边，和板条箱不撞。 */
+function drawSheet(ctx: CanvasRenderingContext2D, r: number, ink: ItemInk): void {
+  const w = r * 1.82;
+  const h = r * 1.36;
+  ctx.beginPath();
+  ctx.moveTo(-w / 2, -h * 0.3);
+  ctx.quadraticCurveTo(-w * 0.4, -h * 0.56, -w * 0.04, -h * 0.48);
+  ctx.quadraticCurveTo(w * 0.3, -h * 0.42, w / 2, -h * 0.18);
+  ctx.quadraticCurveTo(w * 0.44, h * 0.3, w * 0.18, h * 0.5);
+  ctx.quadraticCurveTo(-w * 0.2, h * 0.58, -w * 0.44, h * 0.3);
+  ctx.closePath();
+  ctx.fillStyle = ink.tint;
+  ctx.fill();
+  rim(ctx, ink, 1.3);
+
+  // 翻起来的一角
+  poly(ctx, [
+    [-w * 0.44, h * 0.3],
+    [-w * 0.08, h * 0.14],
+    [-w * 0.14, h * 0.54],
+  ]);
+  ctx.fillStyle = mixHex(ink.tint, "#ffffff", 0.32);
+  ctx.fill();
+  ctx.strokeStyle = withAlpha(ink.dark, 0.6);
+  ctx.lineWidth = 0.9;
+  ctx.stroke();
+
+  // 折痕
+  ctx.strokeStyle = withAlpha(ink.dark, 0.45);
+  ctx.lineWidth = 1.1;
+  for (const k of [-0.16, 0.14]) {
+    ctx.beginPath();
+    ctx.moveTo(-w * 0.36, h * k);
+    ctx.quadraticCurveTo(0, h * (k + 0.12), w * 0.4, h * (k - 0.04));
+    ctx.stroke();
+  }
+
+  // 铜扣眼：布上有个孔，这块才是「油布」不是「一坨颜色」
+  ctx.strokeStyle = ink.accent;
+  ctx.lineWidth = 1.8;
+  ctx.beginPath();
+  ctx.arc(w * 0.28, -h * 0.22, r * 0.14, 0, Math.PI * 2);
+  ctx.stroke();
+}
+
+/** 鱼干：尖头 + 燕尾。海面上唯一一个「有头有尾」的轮廓。 */
+function drawFish(ctx: CanvasRenderingContext2D, r: number, ink: ItemInk): void {
+  const w = r * 1.95;
+  const h = r * 0.92;
+  ctx.beginPath();
+  ctx.moveTo(w * 0.5, 0);
+  ctx.quadraticCurveTo(w * 0.1, -h * 0.66, -w * 0.2, -h * 0.34);
+  ctx.lineTo(-w * 0.5, -h * 0.54);
+  ctx.lineTo(-w * 0.34, 0);
+  ctx.lineTo(-w * 0.5, h * 0.54);
+  ctx.lineTo(-w * 0.2, h * 0.34);
+  ctx.quadraticCurveTo(w * 0.1, h * 0.66, w * 0.5, 0);
+  ctx.closePath();
+  ctx.fillStyle = ink.tint;
+  ctx.fill();
+  rim(ctx, ink, 1.3);
+
+  // 鳃 + 眼
+  ctx.strokeStyle = withAlpha(ink.dark, 0.7);
+  ctx.lineWidth = 1.2;
+  ctx.beginPath();
+  ctx.moveTo(w * 0.2, -h * 0.3);
+  ctx.quadraticCurveTo(w * 0.08, 0, w * 0.2, h * 0.3);
+  ctx.stroke();
+  ctx.fillStyle = ink.dark;
+  ctx.beginPath();
+  ctx.arc(w * 0.33, -h * 0.1, 1.5, 0, Math.PI * 2);
+  ctx.fill();
+
+  // 晾晒划的口子：一条鱼干，不是一条活鱼
+  ctx.strokeStyle = withAlpha(ink.dark, 0.45);
+  ctx.lineWidth = 1;
+  for (let i = 0; i < 3; i++) {
+    const x = -w * 0.12 + i * w * 0.14;
+    ctx.beginPath();
+    ctx.moveTo(x, -h * 0.24);
+    ctx.lineTo(x - 2, h * 0.24);
+    ctx.stroke();
+  }
+  ctx.fillStyle = gloss(0.22);
+  ctx.beginPath();
+  ctx.ellipse(0, -h * 0.22, w * 0.2, h * 0.1, -0.2, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+/** 鱼钩：一个 J。细长的钩身在小尺寸也认得出，靠的是描两遍边。 */
+function drawHook(ctx: CanvasRenderingContext2D, r: number, ink: ItemInk): void {
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+  for (const pass of [0, 1]) {
+    ctx.strokeStyle = pass === 0 ? ink.dark : ink.tint;
+    ctx.lineWidth = pass === 0 ? 4.6 : 2.6;
+    ctx.beginPath();
+    ctx.moveTo(r * 0.32, -r * 0.86);
+    ctx.lineTo(r * 0.32, r * 0.2);
+    ctx.arc(r * 0.32 - r * 0.36, r * 0.2, r * 0.36, 0, Math.PI, false);
+    ctx.lineTo(r * 0.32 - r * 0.72, -r * 0.14);
+    ctx.stroke();
+  }
+  // 环眼
+  ctx.strokeStyle = ink.tint;
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.arc(r * 0.32, -r * 0.92, r * 0.2, 0, Math.PI * 2);
+  ctx.stroke();
+  // 倒刺
+  ctx.strokeStyle = ink.accent;
+  ctx.lineWidth = 1.6;
+  ctx.beginPath();
+  ctx.moveTo(r * 0.32 - r * 0.72, -r * 0.14);
+  ctx.lineTo(r * 0.32 - r * 0.34, r * 0.02);
+  ctx.stroke();
+}
+
+/** 活扳手：斜着的柄 + 张开的钳口。那个缺口是它和所有铁片的分界。 */
+function drawWrench(ctx: CanvasRenderingContext2D, r: number, ink: ItemInk): void {
+  ctx.save();
+  ctx.rotate(-0.62);
+  const len = r * 1.5;
+  const th = r * 0.32;
+
+  roundRect(ctx, -len * 0.62, -th / 2, len, th, th / 2);
+  ctx.fillStyle = ink.tint;
+  ctx.fill();
+  rim(ctx, ink, 1.2);
+
+  // 钳口：上下两片长牙夹着一道缝。缝要够深够宽，不然缩小了就成了榔头
+  const jx = len * 0.3;
+  const lip = r * 0.24;
+  const gap = r * 0.46;
+  for (const sy of [-1, 1]) {
+    const y = sy < 0 ? -gap / 2 - lip : gap / 2;
+    roundRect(ctx, jx, y, r * 0.76, lip, 1.6);
+    ctx.fillStyle = ink.tint;
+    ctx.fill();
+    rim(ctx, ink, 1.1);
+  }
+  roundRect(ctx, jx, -gap / 2 - lip, r * 0.22, gap + lip * 2, 1.6);
+  ctx.fillStyle = ink.tint;
+  ctx.fill();
+  rim(ctx, ink, 1.1);
+  // 缝底压一道暗，开口才「凹」得进去
+  ctx.fillStyle = withAlpha(ink.dark, 0.5);
+  ctx.fillRect(jx + r * 0.22, -gap / 2, r * 0.2, gap);
+
+  // 蜗轮的滚花
+  ctx.strokeStyle = ink.accent;
+  ctx.lineWidth = 1.3;
+  for (let i = 0; i < 3; i++) {
+    const x = jx - r * 0.34 + i * r * 0.12;
+    ctx.beginPath();
+    ctx.moveTo(x, -th * 0.5);
+    ctx.lineTo(x, th * 0.5);
+    ctx.stroke();
+  }
+  ctx.fillStyle = gloss(0.26);
+  roundRect(ctx, -len * 0.56, -th * 0.42, len * 0.8, 1.8, 0.9);
+  ctx.fill();
+  ctx.restore();
+}
+
+/** 信号弹：短粗的管 + 顶盖 + 拉环。配上高饱和的珊瑚色，海面上最跳的一件。 */
+function drawFlare(ctx: CanvasRenderingContext2D, r: number, ink: ItemInk, time: number): void {
+  const w = r * 0.9;
+  const h = r * 1.7;
+  roundRect(ctx, -w / 2, -h * 0.26, w, h * 0.76, w * 0.22);
+  ctx.fillStyle = ink.tint;
+  ctx.fill();
+  rim(ctx, ink, 1.3);
+
+  // 白箍：军械感，也帮着把管身和背景分开
+  ctx.fillStyle = withAlpha("#ffffff", 0.7);
+  for (const k of [0.02, 0.24]) {
+    ctx.fillRect(-w / 2, h * k, w, 1.8);
+  }
+
+  // 顶盖 + 拉环
+  ctx.fillStyle = ink.dark;
+  roundRect(ctx, -w * 0.62, -h * 0.44, w * 1.24, h * 0.2, 2);
+  ctx.fill();
+  ctx.strokeStyle = ink.accent;
+  ctx.lineWidth = 1.6;
+  ctx.beginPath();
+  ctx.arc(w * 0.5, -h * 0.5, r * 0.18, 0, Math.PI * 2);
+  ctx.stroke();
+
+  // 顶上几点火星：不发光，只是一撮亮片，夜里也不刺眼
+  ctx.fillStyle = withAlpha(ink.accent, 0.5 + Math.abs(Math.sin(time * 3)) * 0.4);
+  for (let i = 0; i < 3; i++) {
+    const a = -1.9 + i * 0.5;
+    ctx.beginPath();
+    ctx.arc(Math.cos(a) * r * 0.4, -h * 0.56 + Math.sin(a) * r * 0.16, 1.3, 0, Math.PI * 2);
+    ctx.fill();
+  }
+}
+
+/** 铜罗盘：黄铜圈 + 暗表盘 + 一根红白指针。指针是它和齿轮、轮胎的分界。 */
+function drawCompass(ctx: CanvasRenderingContext2D, r: number, ink: ItemInk, time: number): void {
+  const rad = r * 0.86;
+  ctx.beginPath();
+  ctx.arc(0, 0, rad, 0, Math.PI * 2);
+  ctx.fillStyle = ink.tint;
+  ctx.fill();
+  rim(ctx, ink, 1.5);
+
+  ctx.beginPath();
+  ctx.arc(0, 0, rad * 0.72, 0, Math.PI * 2);
+  ctx.fillStyle = mixHex(ink.dark, "#000000", 0.25);
+  ctx.fill();
+
+  // 方位刻度
+  ctx.strokeStyle = withAlpha(ink.accent, 0.8);
+  ctx.lineWidth = 1.2;
+  for (let i = 0; i < 8; i++) {
+    const a = (i / 8) * Math.PI * 2;
+    const long = i % 2 === 0;
+    ctx.beginPath();
+    ctx.moveTo(Math.cos(a) * rad * (long ? 0.46 : 0.58), Math.sin(a) * rad * (long ? 0.46 : 0.58));
+    ctx.lineTo(Math.cos(a) * rad * 0.66, Math.sin(a) * rad * 0.66);
+    ctx.stroke();
+  }
+
+  // 指针：卡过一次，所以只在原地轻轻晃
+  const swingA = -Math.PI / 2 + Math.sin(time * 0.8) * 0.12;
+  ctx.save();
+  ctx.rotate(swingA);
+  poly(ctx, [
+    [0, -rad * 0.6],
+    [rad * 0.16, 0],
+    [-rad * 0.16, 0],
+  ]);
+  ctx.fillStyle = "#e0544e";
+  ctx.fill();
+  poly(ctx, [
+    [0, rad * 0.6],
+    [rad * 0.16, 0],
+    [-rad * 0.16, 0],
+  ]);
+  ctx.fillStyle = "#f2ece0";
+  ctx.fill();
+  ctx.restore();
+
+  ctx.fillStyle = ink.accent;
+  ctx.beginPath();
+  ctx.arc(0, 0, 1.8, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = gloss(0.4);
+  ctx.lineWidth = 1.4;
+  ctx.beginPath();
+  ctx.arc(0, 0, rad * 0.86, Math.PI * 1.05, Math.PI * 1.55);
+  ctx.stroke();
+}
+
+/** 急救包：白箱子 + 一个十字。全世界都认得的记号，缩到十像素也丢不了。 */
+function drawMedkit(ctx: CanvasRenderingContext2D, r: number, ink: ItemInk): void {
+  const w = r * 1.62;
+  const h = r * 1.24;
+  roundRect(ctx, -w / 2, -h * 0.36, w, h * 0.84, 2.6);
+  ctx.fillStyle = ink.tint;
+  ctx.fill();
+  rim(ctx, ink, 1.4);
+
+  // 提手
+  ctx.strokeStyle = ink.dark;
+  ctx.lineWidth = 2.2;
+  ctx.beginPath();
+  ctx.moveTo(-w * 0.2, -h * 0.36);
+  ctx.quadraticCurveTo(0, -h * 0.74, w * 0.2, -h * 0.36);
+  ctx.stroke();
+
+  // 十字
+  const arm = r * 0.42;
+  const bar = r * 0.16;
+  ctx.fillStyle = ink.accent;
+  ctx.fillRect(-bar / 2, h * 0.06 - arm / 2, bar, arm);
+  ctx.fillRect(-arm / 2, h * 0.06 - bar / 2, arm, bar);
+
+  // 搭扣
+  ctx.fillStyle = withAlpha(ink.dark, 0.8);
+  ctx.fillRect(-w * 0.42, h * 0.02, 3, 4.4);
+  ctx.fillRect(w * 0.42 - 3, h * 0.02, 3, 4.4);
+  ctx.fillStyle = gloss(0.22);
+  ctx.fillRect(-w / 2 + 2.6, -h * 0.3, w - 5.2, 1.6);
+}
+
 /**
  * 未知包裹：还没配图的 id 落在这里。
  *
@@ -795,6 +1100,13 @@ export const SILHOUETTES: Record<SilhouetteId, ItemDraw> = {
   kelp: (ctx, r, ink, time) => drawKelp(ctx, r, ink, time),
   shard: (ctx, r, ink) => drawShard(ctx, r, ink),
   chest: (ctx, r, ink) => drawChest(ctx, r, ink),
+  sheet: (ctx, r, ink) => drawSheet(ctx, r, ink),
+  fish: (ctx, r, ink) => drawFish(ctx, r, ink),
+  hook: (ctx, r, ink) => drawHook(ctx, r, ink),
+  wrench: (ctx, r, ink) => drawWrench(ctx, r, ink),
+  flare: (ctx, r, ink, time) => drawFlare(ctx, r, ink, time),
+  compass: (ctx, r, ink, time) => drawCompass(ctx, r, ink, time),
+  medkit: (ctx, r, ink) => drawMedkit(ctx, r, ink),
   unknown: (ctx, r, ink) => drawUnknown(ctx, r, ink),
 };
 
@@ -803,16 +1115,43 @@ export const SILHOUETTES: Record<SilhouetteId, ItemDraw> = {
  * ------------------------------------------------------------------ */
 
 /**
- * 四种建材的外观。轮廓两两不同是硬要求：
- * 长横杠（木）/ 高瘦带盖（塑料）/ 带尖角的片（金属）/ 带尾巴的环（绳）。
- * 数值平衡在 `data/constants.ts` 的 SALVAGE，这里只管长什么样。
+ * 目录里每件东西长什么样。
+ *
+ * 名字不在这儿写第二遍——`data/catalog.ts` 的 `ITEMS[id].name` 是唯一真源，
+ * 登记时现取。这里只挑剪影、配颜色、定个头。
+ *
+ * 配图原则（按重要性排）：
+ * 1. **轮廓先分开**：长横杠 / 高瘦带盖 / 带尖角的片 / 带尾巴的环 / 有头有尾
+ *    的鱼 / 一个 J / 张着口的钳……夜里整屏压暗，只靠颜色的东西会糊成一团。
+ * 2. 颜色**跨色相**铺开，并且躲开海水那段青蓝，否则远处看不见。
+ * 3. 个头带信息：散装建材大（好捞），小工具小（看着就精贵）。
+ *
+ * `Partial` 是故意的：目录里加了新物品而这里还没配图，画出来是「未知包裹」，
+ * 不会让构建挂掉——配图可以晚一步，但游戏不能等。
  */
-export const BASE_ITEM_ARTS: readonly ItemArtSpec[] = [
-  { id: "wood", label: "木板", shape: "plank", tint: "#c08b52", dark: "#5d3717", accent: "#e6c08a", r: 16 },
-  { id: "plastic", label: "塑料", shape: "bottle", tint: "#9fe6ff", dark: "#2f6e8a", accent: "#ff7a5c", r: 13 },
-  { id: "metal", label: "金属", shape: "plate", tint: "#b9c4cc", dark: "#4a555e", accent: "#a4552b", r: 14.5 },
-  { id: "rope", label: "绳索", shape: "coil", tint: "#e0c48a", dark: "#7a5b28", accent: "#b8894a", r: 12.5 },
-];
+export const CATALOG_ITEM_ART: Partial<Record<ItemId, Omit<ItemArtSpec, "id" | "label">>> = {
+  wood: { shape: "plank", tint: "#c08b52", dark: "#5d3717", accent: "#e6c08a", r: 16 },
+  plastic: { shape: "bottle", tint: "#9fe6ff", dark: "#2f6e8a", accent: "#ff7a5c", r: 13 },
+  metal: { shape: "plate", tint: "#b9c4cc", dark: "#4a555e", accent: "#a4552b", r: 14.5 },
+  rope: { shape: "coil", tint: "#e0c48a", dark: "#7a5b28", accent: "#b8894a", r: 12.5 },
+  tarp: { shape: "sheet", tint: "#5f9573", dark: "#274536", accent: "#e2c98f", r: 15 },
+  barrel: { shape: "drum", tint: "#b4653e", dark: "#4d2413", accent: "#f0bd7a", r: 15 },
+  kelp: { shape: "kelp", tint: "#3f9e72", dark: "#14402d", accent: "#d3ee9c", r: 14 },
+  driedFish: { shape: "fish", tint: "#d6b295", dark: "#6b4630", accent: "#ffe3c4", r: 13.5 },
+  freshWater: { shape: "sack", tint: "#5ec8f0", dark: "#155f7d", accent: "#ffffff", r: 13 },
+  hook: { shape: "hook", tint: "#cfd8de", dark: "#4a555e", accent: "#ff8a5c", r: 11.5 },
+  wrench: { shape: "wrench", tint: "#9aa7ae", dark: "#3d474e", accent: "#ffcf5c", r: 13 },
+  flare: { shape: "flare", tint: "#ff7043", dark: "#6d1f0d", accent: "#ffe08a", r: 12, rare: 2 },
+  compass: { shape: "compass", tint: "#d4a53c", dark: "#5c3f10", accent: "#f7e7bd", r: 12.5, rare: 3 },
+  medkit: { shape: "medkit", tint: "#eef1ef", dark: "#5a6a66", accent: "#e4574f", r: 13 },
+};
+
+/** 目录里全部物品的外观，名字取自 `ITEMS`。启动时全量登记。 */
+export const BASE_ITEM_ARTS: readonly ItemArtSpec[] = ITEM_IDS.map((id) => ({
+  id,
+  label: ITEMS[id].name,
+  ...(CATALOG_ITEM_ART[id] ?? {}),
+}));
 
 const registry = new Map<string, ItemArt>();
 /** 未登记 id 的兜底外观缓存：同一个 id 每帧必须画得一模一样。 */
@@ -869,7 +1208,7 @@ export function itemArt(id: string): ItemArt {
   return made;
 }
 
-/** 清回四种建材（单测用；正常运行时用不上）。 */
+/** 清回目录自带的那批（单测用；正常运行时用不上）。 */
 export function resetItemArt(): void {
   registry.clear();
   fallbacks.clear();
