@@ -1,10 +1,11 @@
-# Round 1 基准与确定性探针
+# Round 2 基准与确定性探针
 
 ## 入口
 
 ```bash
 npm run bench
 npm run probe
+npm run smoke
 ```
 
 `bench` 是无 DOM 的微基准，覆盖三个预期热路径：
@@ -28,14 +29,18 @@ npm run probe
 `BENCH_BUDGET_MULTIPLIER=1.5 npm run bench`。正式基线必须使用默认值，并记录
 Node 版本、CPU、commit 和空闲机器状态。
 
-## 基线占位表
+## 实测基线
 
-Round 1 各玩法模块仍在并行接线；合并后的正式数据在同一台空闲机器连续跑三次，
-填写三次运行的中位数，不能把预算值当作实测值。
+以下数据来自 2026-08-26 UTC 在 commit `d24d745` 上的一次 `npm run bench`。
+每项数字是脚本预热 2 次后采集 7 个样本所得的中位数与 p95，并非预算值。运行环境为
+Node `v22.14.0`、4 vCPU Intel Xeon 虚拟机，预算倍数为默认值 `1`。
 
 | 日期 | commit | Node / CPU | raft median / p95 | debris median / p95 | prod-consume median / p95 | 结论 |
 | --- | --- | --- | ---: | ---: | ---: | --- |
-| 待填 | 待填 | 待填 | 待填 | 待填 | 待填 | 待接线后建立基线 |
+| 2026-08-26 | `d24d745` | Node v22.14.0 / Intel Xeon（4 vCPU） | 9.337 / 13.766 ms | 158.246 / 164.065 ms | 7.852 / 7.940 ms | 3/3 通过 |
+
+对应吞吐量分别为 2,620,656、75,832、76,414,022 ops/s；本轮 workload
+checksum 为 `925273169`。
 
 ## Session 确定性探针
 
@@ -44,13 +49,10 @@ Round 1 各玩法模块仍在并行接线；合并后的正式数据在同一台
 脚本创建两局、以固定 `1/60 s` 步长重放，并逐字节比较按稳定键序列化的状态轨迹。
 不一致时输出首个差异位置并失败。
 
-当前 `src/session.ts` 仍是 Round 1 空壳，只有 `update/draw`，因此探针会明确输出
-`status: "not-wired"`（成功退出，避免阻塞并行合并），不会误报确定性通过。父调度器
-接线时应提供以下 headless 契约之一：
+2026-08-26 实测结果为 `ok: true`、`status: "deterministic"`，种子
+`1587879974`，共推进 300 tick、重放 9 个磁带事件。两局轨迹均为 2,389 bytes，
+稳定哈希为 `728b59b5`。
 
-- `new Session({ seed, headless: true })`，可选 `resetForProbe(seed)` 或
-  `setProbeSeed(seed)`；
-- `applyProbeAction(action)` 或 `dispatchProbeAction(action)`；
-- `probeSnapshot()` 或 `snapshot()`，只返回模拟状态，不含墙钟、渲染对象或函数。
+## Smoke
 
-接线后 `npm run probe` 会自动从 `not-wired` 切换为实际双跑比较。
+`npm run smoke` 实测通过，共检查 16 个必需文件。
