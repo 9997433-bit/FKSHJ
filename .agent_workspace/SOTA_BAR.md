@@ -1,4 +1,4 @@
-# SOTA 基准线 — 视觉 / HUD / 菜单 / 手感（Round 5 · fable-sota · 海上末日重开）
+# SOTA 基准线 — 视觉 / HUD / 菜单 / 手感（Round 6 · fable-sota · 海上末日重开）
 
 > 目的：定义「2026 年的海上末日拾荒建造网页游戏」应该达到的体验底线。
 > 基调一句话：**手游浮岛基建的轻松感——末世但不丧**。天塌了海涨了，
@@ -215,6 +215,53 @@ session 已把 storm01 / starve01 / hintDanger 全部接上（src/session.ts dra
 - 庆祝没有配套音效钩子（sfx 归 opus-content；session 完成瞬间自己放
   sfx.scoop 已经够用）。
 
+## 2.9 Round 6 增量（fable-sota · 新波次 R3：袋格可点契约）
+
+Round 3 简报点名「点袋吃喝」：吃喝的账（ITEM_USE 查表、原子出袋、gain
+入库截断）归 sim 与 session，HUD 这边交付的是**可点的袋格**——画与点
+同一份几何，外加一个 onUse 回调契约。全部新面不传/不调时与 Round 5
+**逐指令一致**（记录型 stub ctx 复验：用过新 API 再 resetHud 重画基线，
+780 条 ctx 指令逐条相同，无状态泄漏）。
+
+**本轮加了什么（hud.ts；menus / css 未动一字）：**
+
+- **几何真源 `BAG_GEO`**（模块内常量）：drawBagStrip 与命中测试共用
+  一份数——改布局只改一处，命中区永不和像素漂移。
+- 新导出（纯几何 / 纯函数，Node 安全，stub ctx 无关）：
+  - `bagStripRect(): HudRect` — 道具袋整卡矩形（x16 y192 · 266×74）。
+  - `bagSlotRects(): HudRect[]` — 六个袋格点击矩形，index 对齐
+    bagSlots.items；可见格 36px，命中区外扩成 **42×44 拇指目标**
+    （§1.6 线），相邻恰好相接不重叠、全部在卡内。
+  - `hitTestBagStrip(x, y, bag): BagHit | null` — 纯命中查询，不碰模块
+    状态；bag 缺省（条没画）恒 null；空格也算命中（item 为 null）。
+  - `clickBagStrip(x, y, bag, timeS?): boolean` — 一站式封装：命中
+    **占用格**时调 `bag.onUse(item, index)` 并记一次按压反馈；返回
+    「点击是否被袋条吞掉」——落在整卡内（含头行与空格）即吞，点袋子
+    手一滑不会在卡背后的海面上放个建筑。timeS 必须与 HudInfo.time
+    同一时钟（都传 session 秒），缺省则只回调、不做按压动画。
+- `HudInfo.bagSlots.onUse?: (item: BagItem, index: number) => void`
+  （新可选字段）+ 导出 `BagItem` / `HudRect` / `BagHit` 类型：
+  - 传了 onUse：头行「道具袋」后多一句潟湖青小字「· 点一下就用」——
+    可点的招牌只在回调真接上时亮，不空许诺。
+  - clickBagStrip 点过的格子：潟湖青描边圈淡出 + 内容轻缩 0.28s
+    （reduced-motion 下恒定亮度描边、无缩放）；时钟对不上（未来戳）
+    视为过期，不会出永久圈。按压表进 resetHud 与 day 回退自愈。
+- 边界与克制：HUD 不自己挂事件监听——点击坐标仍由 input.ts 收
+  （ClickPoint 已换算成逻辑坐标），session 消费点击时先问
+  clickBagStrip 再落海面（接线见 §5 Round 6 段）；能不能吃、吃出什么
+  完全归 session/sim，HUD 只报「第几格、哪件」。
+
+**还缺什么（给下轮 / 父调度器）：**
+
+- **接线归 session**（§5 Round 6 段一行改造 + onUse 十行）：ITEM_USE
+  查表 → 原子出袋（opus-items 若交付 useItem 用它，否则 removeItem）→
+  gain 入库；不可食物品（珍珠等）走 denied 提示 + sfx.deny。
+- 用掉后没有「+食×4」收益提示联动（lootToast 现成，session 存一条即可）。
+- 建造栏鼠标点选 hitTestBuildBar 仍欠——袋格这套「几何真源 + 命中导出」
+  模式可以照搬。
+- 触屏上 42×44 命中区达标了，但整卡贴左缘，单手持机拇指够不到；
+  移动端布局重排仍是 P1 §7 的事。
+
 ## 3. 本轮必做（fable-sota 写集：SOTA_BAR / src/ui/** / index.css）
 
 - [x] **P0 `src/ui/menus.ts`**：title / paused / gameover 三面板，中文；标题「疯狂水世界」+
@@ -298,6 +345,7 @@ drawHud(ctx, {
     used: usedSlots(this.bag),
     max: this.bag.maxSlots,
     items: listItems(this.bag).map((s) => ({ id: s.id, name: itemName(s.id), count: s.count })),
+    // Round 6：接袋格点击时整体换成 this.bagUi()（带 onUse），见下方 1.5) 段。
   },
   // 任务完成庆祝：updateBoard / complete 返回 request-done 事件时存
   //   this.questDone = { name: ev.request.title, reward: `+${requestCost(ev.got)}`, at: this.time };
@@ -310,6 +358,29 @@ drawHud(ctx, {
 // HUD 的饿态阈值 >0.4 与 economy 的 STARVE.warnAt = 0.4 对齐，无需换算。
 // placeHint 的文案用 sim/rules 现成的 placeHint(reason)，撤掉时机由 session 掌握
 //（建议拒绝后显示 2–3 秒；HUD 只负责画 + 出现瞬间轻弹）。
+
+// 1.5) Round 6 袋格可点接线（session.update 的点击分支 + draw 的 bagSlots）：
+import { clickBagStrip, type BagItem } from "./ui/hud";
+// bagUi 抽成一个方法，update 与 draw 用同一份（onUse 记得挂上）：
+private bagUi() {
+  return {
+    used: usedSlots(this.bag),
+    max: this.bag.maxSlots,
+    items: listItems(this.bag).map((s) => ({ id: s.id, name: itemName(s.id), count: s.count })),
+    onUse: (item: BagItem) => this.tryUseItem(item.id as ItemId),
+  };
+}
+// update() 点击分支改一行——先问袋子，被吞掉才不落到海面放置：
+if (click.secondary) this.selected = null;
+else if (!clickBagStrip(click.x, click.y, this.bagUi(), this.time)) this.tryPlaceAt(click.x, click.y);
+// tryUseItem(id) 的账全在 session/sim：查 constants.ITEM_USE
+//（kelp / driedFish / freshWater → gain 表）；
+//   没上表的（珍珠等）→ this.denied = { text: "这个不能吃", at: this.time } + sfx.deny；
+//   上表的 → 原子出袋一件（opus-items 若交付 useItem(inv, id) 用它，
+//   否则 removeItem(this.bag, id, 1)），成功后按表 gain(this.res, kind, n)
+//  （RESOURCE_CAP 自动截断）+ sfx.scoop。
+// draw() 的 bagSlots 传 this.bagUi()——传了 onUse 头行会亮「点一下就用」，
+// 点过的格子自带按压圈；timeS 传 this.time（与 HudInfo.time 同时钟）。
 
 // 2) src/main.ts — 场景切换处：
 import { renderOverlay } from "./ui/menus";
@@ -336,7 +407,11 @@ renderOverlay(overlay, "gameover", {
   `drawStoryLayer(ctx, info)`（Round 4：`storyBeat?` / `quest?` / `lootToast?`；
   Round 5 追加 `questDone?` 完成庆祝，四字段都缺省时不触碰 ctx）、
   `drawBagStrip(ctx, info)`（Round 5：`bagSlots?` 道具袋条，缺省时
-  不触碰 ctx）。
+  不触碰 ctx）；Round 6 袋格点击契约：`BagItem` `HudRect` `BagHit`、
+  `bagStripRect()`、`bagSlotRects()`（42×44 命中矩形，index 对齐
+  items）、`hitTestBagStrip(x, y, bag)`（纯函数）、
+  `clickBagStrip(x, y, bag, timeS?)`（命中占用格调 `bagSlots.onUse?` +
+  按压反馈；bag 缺省恒不吞不调）。
 - `gameoverCopy` 纯函数可直接断言；hud/menus 模块 import 无副作用（Node 安全）。
 
 ## 6. 验收 rubric（Round 1 结束时逐项打勾）

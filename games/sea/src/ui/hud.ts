@@ -2,7 +2,7 @@ import { CANVAS, INVENTORY } from "../data/constants";
 import { SILHOUETTES, itemArt } from "../world/items";
 
 /**
- * HUD 绘制 API（fable-sota，Round 5）。
+ * HUD 绘制 API（fable-sota，Round 6）。
  *
  * 设计基调：手游浮岛基建的轻松感——末世但不丧。圆角卡片、暖阳黄点缀、
  * 资源 +1 弹跳、换天徽章闪光；绝不用血红大警报吓玩家（危险态只做柔和脉冲）。
@@ -14,7 +14,9 @@ import { SILHOUETTES, itemArt } from "../world/items";
  *   Round 2 新增 storm01 / starve01 / hintDanger 三个可选预警字段，
  *   Round 3 新增 placeHint（放置被拒短句），
  *   Round 4 新增 storyBeat / quest / lootToast（轻剧情 / 岛民请求 / 拾取提示），
- *   Round 5（新波次 R2）新增 bagSlots / questDone（道具袋条 / 任务完成庆祝）：
+ *   Round 5（新波次 R2）新增 bagSlots / questDone（道具袋条 / 任务完成庆祝），
+ *   Round 6（新波次 R3）新增 bagSlots.onUse 回调 + 袋格点击契约
+ *   （bagStripRect / bagSlotRects / hitTestBagStrip / clickBagStrip）：
  *   session 还没传时行为与上一轮**逐像素一致**，不崩不闪。
  * - 布局红线：资源/生存条贴左上，天数贴右上，建造栏贴底部中央；
  *   预警层贴顶缘（y < 96，浮岛网格上沿之上）；剧情层贴左右两列与左下角
@@ -46,6 +48,13 @@ export type BuildSlot = {
   affordable?: boolean;
   /** 当前选中格：抬升 + 亮边框。 */
   selected?: boolean;
+};
+
+/** 袋内一件物品（bagSlots.items 的元素）：id 用来配剪影，缺省按 name 散列。 */
+export type BagItem = {
+  id?: string;
+  name: string;
+  count: number;
 };
 
 export type HudInfo = {
@@ -127,7 +136,15 @@ export type HudInfo = {
     /** 总格数（Inventory.maxSlots） */
     max: number;
     /** 袋内物品（建议 listItems 的 catalog 顺序）；id 用来配剪影 */
-    items?: Array<{ id?: string; name: string; count: number }>;
+    items?: BagItem[];
+    /**
+     * 袋格点击回调（Round 6，可选）：点中**占用格**时由 clickBagStrip 调，
+     * 吃不吃得下这件（查 ITEM_USE、走 useItem 原子出袋）全归 session。
+     * 传了它头行会亮「点一下就用」提示；drawBagStrip 本身不发起任何事件
+     * 监听——点击坐标仍由 input/session 喂给 clickBagStrip。不传时
+     * 绘制与行为与 Round 5 逐指令一致。
+     */
+    onUse?: (item: BagItem, index: number) => void;
   };
   /**
    * 任务完成庆祝（Round 5）：右列任务胶囊下方（quest 不在时占其原位）
@@ -167,6 +184,9 @@ const RESOURCE_LABEL: Record<ResourceKind, string> = {
 /** 资源 +1 / 换天弹跳的时长（秒）。 */
 const POP_S = 0.35;
 
+/** 袋格按压反馈（潟湖青描边圈 + 内容轻缩）的时长（秒）。 */
+const PRESS_S = 0.28;
+
 /** 系统偏好减弱动态时关闭持续脉冲（低水量呼吸等）。守卫 matchMedia：node 单测没有它。 */
 const REDUCED_MOTION =
   typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -193,6 +213,7 @@ let questDoneAt = -Infinity;
 let bagSeen = false;
 let lastBagCounts = new Map<string, number>();
 let bagPopAt = new Map<string, number>();
+let bagPressAt = new Map<number, number>();
 
 /** 清空 HUD 动画状态。新一局开始时调用，避免上一局尾帧的弹跳串进新局。幂等。 */
 export function resetHud(): void {
@@ -217,6 +238,7 @@ export function resetHud(): void {
   bagSeen = false;
   lastBagCounts = new Map();
   bagPopAt = new Map();
+  bagPressAt = new Map();
 }
 
 /**
@@ -645,16 +667,119 @@ export function drawBuildBar(ctx: CanvasRenderingContext2D, info: HudInfo): void
   ctx.restore();
 }
 
+// ---- 道具袋条：几何真源 + 点击契约（Round 6）----
+// 画（drawBagStrip）与点（hitTestBagStrip）共用这一份数——改布局只改这里，
+// 命中区永不和像素漂移。
+
+/** 道具袋条几何（逻辑坐标）。cell 36px 是可见格；命中区见 bagSlotRects。 */
+const BAG_GEO = {
+  x: 16,
+  y: 192,
+  /** 卡内边距 */
+  pad: 10,
+  /** 可见小格边长 */
+  cell: 36,
+  /** 小格间距 */
+  gap: 6,
+  /** 小格顶相对卡顶的偏移（头行占高） */
+  cellTop: 26,
+  /** 卡高 = headH + cell + pad */
+  headH: 28,
+  /** 命中区外扩：36px 格子扩成 42×44 拇指目标，互不重叠、不出卡缘 */
+  hitPadX: 3,
+  hitPadY: 4,
+} as const;
+
+/** 逻辑坐标系里的一块矩形（Engine 已抹平 DPR；input.ts 的点击坐标可直接比）。 */
+export type HudRect = { x: number; y: number; w: number; h: number };
+
+/** 袋格命中结果：index 对齐 bagSlots.items（0 起）；空格 item 为 null。 */
+export type BagHit = { index: number; item: BagItem | null };
+
+/** 道具袋条整卡矩形。纯几何，画没画（bagSlots 传没传）由调用方自己判断。 */
+export function bagStripRect(): HudRect {
+  const n = INVENTORY.hudSlots;
+  return {
+    x: BAG_GEO.x,
+    y: BAG_GEO.y,
+    w: BAG_GEO.pad * 2 + n * BAG_GEO.cell + (n - 1) * BAG_GEO.gap,
+    h: BAG_GEO.headH + BAG_GEO.cell + BAG_GEO.pad,
+  };
+}
+
+/**
+ * 全部袋格的点击矩形（index 对齐 bagSlots.items）。命中区比可见格大一圈
+ * （42×44，SOTA_BAR §1.6 的拇指目标线），相邻恰好相接不重叠、全在卡内。
+ */
+export function bagSlotRects(): HudRect[] {
+  const { x, y, pad, cell, gap, cellTop, hitPadX, hitPadY } = BAG_GEO;
+  const rects: HudRect[] = [];
+  for (let i = 0; i < INVENTORY.hudSlots; i++) {
+    rects.push({
+      x: x + pad + i * (cell + gap) - hitPadX,
+      y: y + cellTop - hitPadY,
+      w: cell + hitPadX * 2,
+      h: cell + hitPadY * 2,
+    });
+  }
+  return rects;
+}
+
+/**
+ * 袋格命中测试（纯函数，不碰模块状态）：点 (x, y) 落在哪个袋格。
+ * bag 缺省（条没画）恒 null；空格也算命中（item 为 null）；items 超过
+ * hudSlots 的部分画不到也点不到——总况看头行数字。
+ */
+export function hitTestBagStrip(x: number, y: number, bag: HudInfo["bagSlots"]): BagHit | null {
+  if (!bag) return null;
+  const rects = bagSlotRects();
+  for (let i = 0; i < rects.length; i++) {
+    const r = rects[i];
+    if (x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h) {
+      return { index: i, item: bag.items?.[i] ?? null };
+    }
+  }
+  return null;
+}
+
+/**
+ * 袋格点击一站式封装（onUse 回调契约）：命中**占用格**时调 bag.onUse(item, index)
+ * 并记一次按压反馈（下一帧那格潟湖青描边圈 + 内容轻缩 0.28s）。
+ * 返回「点击是否被袋条吞掉」——落在整卡范围内（含头行与空格）即吞，
+ * 免得点袋子的手一滑，在卡背后的海面上放了个建筑。session 接线一行：
+ *   if (!clickBagStrip(click.x, click.y, bagUi, this.time)) this.tryPlaceAt(click.x, click.y);
+ * timeS 必须与 HudInfo.time 同一时钟（都传 session 秒）；缺省则只回调、
+ * 不做按压动画（时钟对不上宁可不动）。bag 缺省恒 false，行为与现在一致。
+ */
+export function clickBagStrip(
+  x: number,
+  y: number,
+  bag: HudInfo["bagSlots"],
+  timeS?: number,
+): boolean {
+  if (!bag) return false;
+  const r = bagStripRect();
+  if (x < r.x || x > r.x + r.w || y < r.y || y > r.y + r.h) return false;
+  const hit = hitTestBagStrip(x, y, bag);
+  if (hit?.item) {
+    if (timeS !== undefined) bagPressAt.set(hit.index, timeS);
+    bag.onUse?.(hit.item, hit.index);
+  }
+  return true;
+}
+
 /**
  * 左列第三卡：道具袋条（Round 5；bagSlots 缺省时不触碰 ctx，逐像素一致）。
  * 固定 y 192 起——拾取提示槽位（154–184）之下、左下日记卡上浮上限（~586）
  * 之上，左列三卡与建造栏互不相撞，中央舞台零遮挡。
  * - 头行：布袋图标 +「道具袋」+ `used/max`；袋满时图标与数字染珊瑚色
  *   柔和呼吸（reduced-motion 下恒定）——「捞了也装不下」提前一眼看到。
+ *   传了 onUse 时头行多一句潟湖青「点一下就用」（可点的招牌）。
  * - 下排固定 INVENTORY.hudSlots 个 36px 小格：物品剪影复用 world/items
  *   的登记表（id 缺省按 name 散列出「未知包裹」，同名恒同色），格内裁切
  *   不外溢；×数量角标压右下；数量增加的那一格弹跳（资源 pop 同曲线）。
- *   空格画淡色底座，items 超出只画前 6 件。
+ *   clickBagStrip 点过的格子描边圈 + 轻缩 0.28s（reduced-motion 下只有
+ *   恒定描边圈，无缩放）。空格画淡色底座，items 超出只画前 6 件。
  */
 export function drawBagStrip(ctx: CanvasRenderingContext2D, info: HudInfo): void {
   const now = info.time ?? performance.now() / 1000;
@@ -663,13 +788,8 @@ export function drawBagStrip(ctx: CanvasRenderingContext2D, info: HudInfo): void
   if (!bag) return;
   const FONT = "'Trebuchet MS', 'PingFang SC', 'Microsoft YaHei', sans-serif";
   const slotN = INVENTORY.hudSlots;
-  const cell = 36;
-  const gap = 6;
-  const pad = 10;
-  const x0 = 16;
-  const y0 = 192;
-  const w = pad * 2 + slotN * cell + (slotN - 1) * gap;
-  const h = 28 + cell + pad;
+  const { cell, gap, pad } = BAG_GEO;
+  const { x: x0, y: y0, w, h } = bagStripRect();
   ctx.save();
   panel(ctx, x0, y0, w, h);
 
@@ -685,6 +805,12 @@ export function drawBagStrip(ctx: CanvasRenderingContext2D, info: HudInfo): void
   ctx.font = `700 12px ${FONT}`;
   ctx.textAlign = "left";
   ctx.fillText("道具袋", x0 + pad + 19, y0 + 19);
+  if (bag.onUse) {
+    // 可点的招牌：只有回调接上了才亮，免得空许诺
+    ctx.fillStyle = withAlpha(HUD_COLORS.accent, 0.8);
+    ctx.font = `700 11px ${FONT}`;
+    ctx.fillText("· 点一下就用", x0 + pad + 19 + estTextWidth("道具袋", 12) + 4, y0 + 19);
+  }
   ctx.globalAlpha = pulse;
   ctx.fillStyle = full ? HUD_COLORS.danger : withAlpha(HUD_COLORS.ink, 0.55);
   ctx.textAlign = "right";
@@ -693,7 +819,7 @@ export function drawBagStrip(ctx: CanvasRenderingContext2D, info: HudInfo): void
 
   // 小格排：先底座，再剪影 + 数量角标（整格一起弹）
   const items = bag.items ?? [];
-  const sy = y0 + 26;
+  const sy = y0 + BAG_GEO.cellTop;
   for (let i = 0; i < slotN; i++) {
     const sx = x0 + pad + i * (cell + gap);
     const it = items[i];
@@ -705,13 +831,20 @@ export function drawBagStrip(ctx: CanvasRenderingContext2D, info: HudInfo): void
     roundRect(ctx, sx, sy, cell, cell, 8);
     ctx.stroke();
     if (!it) continue;
+    // 按压反馈：clickBagStrip 记过时间戳才有；时钟对不上（未来戳）视为过期
+    const pressStamp = bagPressAt.get(i);
+    const pressT =
+      pressStamp !== undefined && now >= pressStamp
+        ? Math.min(1, (now - pressStamp) / PRESS_S)
+        : 1;
+    const squash = REDUCED_MOTION ? 1 : 1 - 0.12 * (1 - pressT);
     const art = itemArt(it.id ?? it.name);
     const scale = popScale(bagPopAt.get(it.name), now);
     ctx.save();
     roundRect(ctx, sx, sy, cell, cell, 8);
     ctx.clip(); // 剪影与角标都不许溢出格子（pop 放大时也被裁住）
     ctx.translate(sx + cell / 2, sy + cell / 2);
-    ctx.scale(scale, scale);
+    ctx.scale(scale * squash, scale * squash);
     // time 传 0：袋子里的东西是静物，摇摆留给海面
     (art.draw ?? SILHOUETTES[art.shape])(ctx, 11, { tint: art.tint, dark: art.dark, accent: art.accent }, 0);
     const qty = Math.max(1, Math.floor(it.count));
@@ -727,6 +860,13 @@ export function drawBagStrip(ctx: CanvasRenderingContext2D, info: HudInfo): void
       ctx.fillText(label, cell / 2 - 4, cell / 2 - 4);
     }
     ctx.restore();
+    if (pressT < 1) {
+      // 按压圈叠在内容之上：淡出 0.28s；reduced-motion 下恒定亮度、瞬现瞬撤
+      ctx.strokeStyle = withAlpha(HUD_COLORS.accent, REDUCED_MOTION ? 0.7 : 0.9 * (1 - pressT));
+      ctx.lineWidth = 2;
+      roundRect(ctx, sx + 1, sy + 1, cell - 2, cell - 2, 7);
+      ctx.stroke();
+    }
   }
 
   ctx.restore();
