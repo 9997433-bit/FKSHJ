@@ -5,7 +5,9 @@
 
 纯 TypeScript + Canvas 2D + Web Audio，零后端、零外部资源，构建产物为可离线的静态站点。
 
-在线玩：https://9997433-bit.github.io/FKSHJ/
+在线玩（开启 GitHub Pages 之后）：https://9997433-bit.github.io/FKSHJ/
+
+仓库 Settings → Pages → Build and deployment 选 GitHub Actions，工作流已写好。
 
 ## 本地运行
 
