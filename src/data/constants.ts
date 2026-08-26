@@ -122,6 +122,123 @@ export const GEN = {
 } as const;
 
 /* ========================================================================
+ * 镜头 / 2.5D 投影（GAME_SPEC §6 视觉底线）
+ *
+ * 现状（Round 2）：src/game/camera.ts 仍以同值内联常量工作（opus-core
+ * 所有权，本轮不越权改写）。本组是迁移目标：camera.ts 改读本组时数值
+ * 完全一致，接入是行为无损的；接入后必须删除模块内副本，避免双份真相。
+ * far 裁剪没有单独字段——继续用 GEN.horizon，保持单一来源。
+ * session.draw 已直接消费 entityCullZ。
+ * ===================================================================== */
+export const CAMERA = {
+  /** 消失点高度 = 画布高 × 0.18（§6：消失点在画布上方 18%） */
+  horizonFrac: 0.18,
+  /** 近裁剪深度（世界单位）；再近的物体按此深度投影（camera.ts NEAR） */
+  near: 40,
+  /** 最远处的投影缩放（camera.ts project 的 0.22） */
+  scaleMin: 0.22,
+  /** 由远及近附加的缩放跨度；最近处 s = scaleMin + scaleSpan */
+  scaleSpan: 1.15,
+  /** 屏幕 y 随纵深的非线性指数，>1 时近处行进更快（camera.ts 的 pow 1.15） */
+  depthCurve: 1.15,
+  /** 最近平面距画布底边的留边（px），给玩家/水花留出画面（camera.ts 的 70） */
+  bottomPad: 70,
+  /** 快弯振幅（世界单位，camera.ts BEND_FAST） */
+  bendFastAmp: 26,
+  /** 慢弯振幅（camera.ts BEND_SLOW） */
+  bendSlowAmp: 12,
+  /** 快弯角频率（rad/世界单位，camera.ts BEND_FAST_K） */
+  bendFastFreq: 0.004,
+  /** 慢弯角频率（camera.ts BEND_SLOW_K） */
+  bendSlowFreq: 0.0011,
+  /** 慢弯相位（camera.ts BEND_SLOW_PHASE） */
+  bendSlowPhase: 1.7,
+  /** 读作「满倾斜过弯」的弯道斜率，chuteBank 用它归一到 -1..1 */
+  bankFull: 0.12,
+  /** 撞击震动每秒衰减量（camera.ts SHAKE_DECAY） */
+  shakeDecay: 3.4,
+  /** 实体绘制远裁剪（世界单位）；比 GEN.horizon 近，远处实体小于 1px 无意义 */
+  entityCullZ: 1800,
+} as const;
+
+/* ========================================================================
+ * 手感 / 判定（速度趋近、carve 掉速、判定窗口、反馈强度）
+ *
+ * 分三段：
+ * 1) 速度模型 —— src/game/physics.ts 同值内联（opus-core），迁移目标；
+ * 2) 玩家操控 —— src/entities/player.ts 同值内联（opus-core），迁移目标；
+ * 3) 会话判定 —— src/session.ts 已接入本组（本轮完成）。
+ * 迁移规则同 CAMERA：数值一致、行为无损、接入后删内联副本。
+ * ===================================================================== */
+export const FEEL = {
+  /* —— 1) 速度模型（physics.ts）—— */
+  /** 速度硬下限（世界单位/秒）；撞击后也不会慢于此（physics.ts MIN_SPEED） */
+  minSpeed: 90,
+  /** 低于巡航时的每秒趋近率：爬升要积极（physics.ts RISE） */
+  approachRise: 0.95,
+  /** 高于巡航时的每秒趋近率：滑落要慵懒（physics.ts FALL） */
+  approachFall: 0.62,
+  /** 原始整定趋近率；坡度-水阻平衡点 slopeLift 由它折算（physics.ts SETTLE_RATE） */
+  settleRate: 0.35,
+  /** 加速包络起势时长（秒，physics.ts BOOST_ATTACK） */
+  boostAttackS: 0.12,
+  /** 加速包络泄力时长（秒，physics.ts BOOST_RELEASE） */
+  boostReleaseS: 0.3,
+  /** 满 carve 时从巡航速度上削掉的量（physics.ts BANK_LOSS） */
+  bankLoss: 70,
+  /** carve 期间额外的趋近率加成 = 更快贴向掉速后的巡航（physics.ts BANK_SCRUB） */
+  bankScrub: 0.55,
+  /* —— 2) 玩家操控（player.ts）—— */
+  /** 跳跃预输入窗口（秒）：冷却结束前按下仍会起跳（player.ts JUMP_BUFFER） */
+  jumpBufferS: 0.13,
+  /** 换道贡献的 carve 权重（player.ts SWITCH_CARVE） */
+  switchCarve: 0.8,
+  /** 滑道自身弯度贡献的 carve 权重（player.ts CHUTE_CARVE） */
+  chuteCarve: 0.45,
+  /** 滞空时 carve 折减：空中没有水可刮（player.ts AIR_CARVE） */
+  airCarve: 0.25,
+  /** 小跳最大抬升（屏幕 px @ 单位缩放，player.ts DEFAULT_LIFT） */
+  hopLiftPx: 34,
+  /** 顶着边墙持续转向时的刮墙掉速冷却（秒，player.ts WALL_SCRAPE_CD） */
+  wallScrapeCdS: 0.45,
+  /** 受击后无敌时长（秒，player.ts hurt() 的 0.85） */
+  hurtInvulnS: 0.85,
+  /* —— 3) 会话判定（session.ts，已接入）—— */
+  /** 世界推进比例：speed × dt × worldScale = Δdistance（世界单位） */
+  worldScale: 0.2,
+  /** 玩家泳圈锚定深度 z（世界单位）；碰撞判定与绘制共用，漂移会导致
+   *  「看着没撞却判撞」，必须走同一常量 */
+  playerAnchorZ: 80,
+  /** 拾取判定窗口：实体相对玩家 z 在 [min, max] 内才进入窄相 */
+  pickupZMin: -20,
+  pickupZMax: 220,
+  /** 障碍判定窗口 */
+  hazardZMin: -20,
+  hazardZMax: 180,
+  /** 加速带判定窗口 */
+  boostZMin: -10,
+  boostZMax: 140,
+  /** 普通实体的同车道容差（车道单位） */
+  laneTol: 0.35,
+  /** 漩涡吸入的加宽容差：相邻半条车道也会被吸（§4.3 Vortex） */
+  vortexLaneTol: 0.85,
+  /** 漩涡减速倍率（§4.3：吸入相邻车道，减速） */
+  vortexSlowMul: 0.7,
+  /** 水环短暂无敌时长（秒，§4.3 Ring） */
+  ringInvulnS: 0.6,
+  /* —— 4) 反馈强度（physics.ts 的 kickCamera 力度；待整体接入）—— */
+  /** 撞障碍的镜头冲击力（physics.ts applyHit 的 0.9） */
+  hitKick: 0.9,
+  /** 刮墙的镜头冲击力（physics.ts applyWallScrape 的 0.35） */
+  wallKick: 0.35,
+  /** 吃加速带的镜头冲击力（physics.ts applyBoost 的 0.22） */
+  boostKick: 0.22,
+  /** 受击顿帧时长（秒）。ROUND1_BRIEF 缺陷 8 / SOTA_BAR P0-4 规划值
+   *  （40–60ms 取中），尚无消费方；接入点在 session.update 的 hurt 分支 */
+  hitstopS: 0.05,
+} as const;
+
+/* ========================================================================
  * 存档（GAME_SPEC §4.5：localStorage 最高分）
  * ===================================================================== */
 export const SAVE_KEY = "cww_hiscore_v1";

@@ -38,7 +38,7 @@
 
 | 角色 | 环境 | Agent ID | 状态 |
 | --- | --- | --- | --- |
-| fable-arch | cloud | `bc-4a967bf5-2bd9-56d2-8c94-7b7dc4a38f3e` | 运行中 |
+| fable-arch | cloud | `bc-4a967bf5-2bd9-56d2-8c94-7b7dc4a38f3e` | 已完成（CAMERA/FEEL + loop 修复已摘并） |
 | fable-sota | cloud | `bc-993634f2-a713-5fc9-a207-a4f641dc65d4` | 已完成（泳圈绘制 + 静音开关已摘并） |
 | opus-content | cloud | `bc-2ce5cda9-7350-5957-9a67-eaea45bfbec1` | 运行中 |
 | opus-core | local | `bc-f33f8ea2-5c35-50b7-9683-9baff7d16890` | 已完成（落水失败 + 换道碰撞已收编） |
