@@ -5,6 +5,8 @@ export type InputState = {
   pause: boolean;
   consumeJump(): boolean;
   consumePause(): boolean;
+  /** Drop leftover jump/pause presses so a menu key cannot fire on the next scene. */
+  clearQueued(): void;
 };
 
 const JUMP_KEYS = ["Space", "ArrowUp", "KeyW"];
@@ -32,7 +34,7 @@ export function createInput(target: HTMLElement): InputState {
     }
     if (pressed) down.add(e.code);
     else down.delete(e.code);
-    if (!pressed || e.repeat) return;
+    if (!pressed || e.repeat || typingOrClicking(e.target)) return;
     if (JUMP_KEYS.includes(e.code)) jumpQueued = true;
     if (PAUSE_KEYS.includes(e.code)) pauseQueued = true;
   };
@@ -105,6 +107,10 @@ export function createInput(target: HTMLElement): InputState {
       const v = pauseQueued;
       pauseQueued = false;
       return v;
+    },
+    clearQueued() {
+      jumpQueued = false;
+      pauseQueued = false;
     },
   };
 }

@@ -25,6 +25,7 @@ function audioControl() {
 }
 
 function showTitle(): void {
+  input.clearQueued();
   engine.scene = "title";
   renderOverlay(overlay, "title", {
     hiScore: Session.hiScore(),
@@ -34,6 +35,7 @@ function showTitle(): void {
 }
 
 function startRun(): void {
+  input.clearQueued();
   sfx.unlock();
   resetHud();
   session = new Session(sfx);
@@ -42,6 +44,7 @@ function startRun(): void {
 }
 
 function pause(): void {
+  input.clearQueued();
   engine.scene = "paused";
   renderOverlay(overlay, "paused", {
     hiScore: Session.hiScore(),
@@ -55,6 +58,7 @@ function pause(): void {
 }
 
 function finish(): void {
+  input.clearQueued();
   const r = session.result();
   engine.scene = "gameover";
   renderOverlay(overlay, "gameover", {
