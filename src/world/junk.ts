@@ -11,7 +11,9 @@
  * 所以就算实体状态由别的模块持有，`drawJunk` 也照画不误。
  */
 
-import { BOAT, CANVAS, SALVAGE, TILE } from "../data/constants";
+import { CANVAS, SALVAGE } from "../data/constants";
+import { SKIFF } from "../entities/skiff";
+import { RAFT_ORIGIN, TILE } from "../sim/rules";
 import { swayAt, withAlpha } from "./ocean";
 
 /** 能捞到的四种材料（`SALVAGE.weights` 的键，也是 ResourceId 的子集）。 */
@@ -85,8 +87,13 @@ export type JunkField = {
 /** 沉没前的淡出时长（秒）：给玩家「快没了，赶紧捞」的提示。 */
 export const SINK_FADE_S = 4;
 
-/** 刷新点与木筏保持的距离（逻辑像素），免得东西直接刷在甲板上。 */
-const RAFT_CLEAR = 40;
+/** 刷新点与木筏中心保持的距离（逻辑像素），免得东西直接刷在甲板上。 */
+const RAFT_CLEAR = TILE * 2.2;
+
+/** 漂浮物活动的海域。默认就是可见画布——没有镜头跟随，漂到画外等于没有。 */
+export type JunkBounds = { minX: number; minY: number; maxX: number; maxY: number };
+
+export const DEFAULT_BOUNDS: JunkBounds = { minX: 0, minY: 0, maxX: CANVAS.w, maxY: CANVAS.h };
 
 function nextRand(field: JunkField): number {
   field.rng = (field.rng * 1664525 + 1013904223) >>> 0;
@@ -125,6 +132,8 @@ export type SpawnOpts = {
   y?: number;
   /** 漂流速度（逻辑像素/秒）；默认 `SALVAGE.driftPxS` */
   drift?: number;
+  /** 活动海域；默认可见画布 */
+  bounds?: JunkBounds;
 };
 
 /**
@@ -149,17 +158,16 @@ export function spawnJunk(field: JunkField, opts: SpawnOpts = {}): Junk {
   const kind = opts.kind ?? rollJunkKind(field);
   const style = JUNK_STYLES[kind];
   const drift = opts.drift ?? SALVAGE.driftPxS;
-  const cx = TILE.originX + (TILE.gridW * TILE.sizePx) / 2;
-  const cy = TILE.originY + (TILE.gridH * TILE.sizePx) / 2;
-  const startSpan = (TILE.startSize * TILE.sizePx) / 2 + RAFT_CLEAR;
+  const b = opts.bounds ?? DEFAULT_BOUNDS;
 
   let x = opts.x ?? 0;
   let y = opts.y ?? 0;
   if (opts.x === undefined || opts.y === undefined) {
     for (let tries = 0; tries < 6; tries++) {
-      x = range(field, 40, CANVAS.w - 40);
-      y = range(field, 40, CANVAS.h - 40);
-      if (Math.abs(x - cx) > startSpan || Math.abs(y - cy) > startSpan) break;
+      x = range(field, b.minX + 40, b.maxX - 40);
+      y = range(field, b.minY + 40, b.maxY - 40);
+      const clear = RAFT_CLEAR + TILE / 2;
+      if (Math.abs(x - RAFT_ORIGIN.x) > clear || Math.abs(y - RAFT_ORIGIN.y) > clear) break;
     }
   }
 
@@ -189,6 +197,8 @@ export type JunkFlow = {
   limit?: number;
   /** 漂流速度；默认 `SALVAGE.driftPxS` */
   drift?: number;
+  /** 活动海域；默认可见画布 */
+  bounds?: JunkBounds;
   /** 关掉刷新（结算画面让海面自然漂空） */
   spawn?: boolean;
 };
@@ -203,6 +213,7 @@ export function updateJunk(field: JunkField, dt: number, flow: JunkFlow = {}): v
   const limit = flow.limit ?? SALVAGE.maxAfloat;
   const rate = flow.rate ?? 1 / SALVAGE.spawnIntervalS;
   const drift = flow.drift ?? SALVAGE.driftPxS;
+  const b = flow.bounds ?? DEFAULT_BOUNDS;
 
   for (let i = field.items.length - 1; i >= 0; i--) {
     const j = field.items[i];
@@ -214,20 +225,20 @@ export function updateJunk(field: JunkField, dt: number, flow: JunkFlow = {}): v
     j.x += j.vx * dt;
     j.y += j.vy * dt;
     j.a += j.av * dt;
-    // 撞到画布边就反弹回来：东西不许漂出镜头，否则玩家只能干等刷新
+    // 撞到海域边就反弹回来：东西不许漂出镜头，否则玩家只能干等刷新
     const pad = j.r + 6;
-    if (j.x < pad) {
-      j.x = pad;
+    if (j.x < b.minX + pad) {
+      j.x = b.minX + pad;
       j.vx = Math.abs(j.vx);
-    } else if (j.x > CANVAS.w - pad) {
-      j.x = CANVAS.w - pad;
+    } else if (j.x > b.maxX - pad) {
+      j.x = b.maxX - pad;
       j.vx = -Math.abs(j.vx);
     }
-    if (j.y < pad) {
-      j.y = pad;
+    if (j.y < b.minY + pad) {
+      j.y = b.minY + pad;
       j.vy = Math.abs(j.vy);
-    } else if (j.y > CANVAS.h - pad) {
-      j.y = CANVAS.h - pad;
+    } else if (j.y > b.maxY - pad) {
+      j.y = b.maxY - pad;
       j.vy = -Math.abs(j.vy);
     }
   }
@@ -237,19 +248,19 @@ export function updateJunk(field: JunkField, dt: number, flow: JunkFlow = {}): v
   while (field.cd <= 0) {
     field.cd += 1 / Math.max(0.05, rate);
     if (field.items.length >= limit) continue;
-    spawnJunk(field, { drift });
+    spawnJunk(field, { drift, bounds: b });
   }
 }
 
 /**
  * 捞取判定：返回 (x, y) 半径 `reach` 内**最近**的漂浮物，没有则 null。
- * 默认半径就是小船的 `BOAT.pickupRadiusPx`。
+ * 默认半径就是小船的 `SKIFF.scoopRadius`，与手感契约同源。
  */
 export function pickJunk(
   field: JunkField,
   x: number,
   y: number,
-  reach: number = BOAT.pickupRadiusPx,
+  reach: number = SKIFF.scoopRadius,
 ): Junk | null {
   let best: Junk | null = null;
   let bestD = Infinity;
