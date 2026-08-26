@@ -1,19 +1,16 @@
-# Round 2 结论
+# Round 2 简报 — 把新层折进同一套海
 
-六路均已交卷。父调度器已把 HUD 新字段和 `world/craft` 船体接到 `session.ts`。
-`npm test` 8/8，`npm run probe` 仍为 deterministic（`728b59b5`）。
+Round 1 已接线：日记卡、请求板（Q/E）、道具袋、14 件剪影。探针 `728b59b5`。
 
-| 角色 | 产出 |
-| --- | --- |
-| fable-arch | `constants.ts` 与 sim 数字对齐；ARCHITECTURE / README 改口「sim 是运行时真相」 |
-| fable-sota | HUD 可选 `storm01` / `starve01` / `hintDanger`；空选中建造提示 |
-| opus-content | `src/world/craft.ts`：`drawSkiff` / `drawPirate(s)`，与涌浪同相 |
-| opus-core | `placeHint`；捞取高亮与 `pickJunk` 同半径；菜单空格不再粘住 `scoopHeld` |
-| gpt-test | headless Session 建造磁带 + `gameoverCopy` |
-| gpt-probe | BENCH 换成接线后实测，探针不再是 not-wired |
+## 本轮只做这些
 
-## 还没做完（Round 3）
+1. **海面要刷出目录物**：`Junk.kind` 仍是四种建材（入库对 `Resources`），用已有 `look` 字段让玩家看见油布/桶/海带等。不要第二套掉落经济。
+2. **道具袋**：加 `rollItemDrop`（读 `constants.ITEM_DROP`），捞建材时有概率/保底进袋。袋仍不改 `pay`/`gain`。
+3. **里程碑**：并进请求板或 `expand.ts` 旁路（首座净水机 / 撑过首场风暴 / 木筏 ≥12 / 活到第 3 天）。要有可测状态，不要只写文案。
+4. **常数**：`expand.ts` 若改读 `REQUESTS`，须保证 300 tick（5s）内仍不贴单、不抽 rng。
+5. **HUD**：可选物品栏条；任务完成可庆祝。不传新字段则与现在一致。
+6. **单测**：inventory 原子性、story 解锁序、board 同种子复现。旧 13 测必须仍绿。
 
-- sim / entities 仍持有本地数值副本，未改 import constants
-- 浏览器端到端（捞、建、停、死、再来）未当验收关掉
-- GitHub Pages 仍是旧滑道包，合 `main` 后要重跑 workflow
+## 不要做
+
+官方 IP；改 TILE/花费/风暴；扩 `snapshot()`；搬回根 `src/`；静默换模型。
