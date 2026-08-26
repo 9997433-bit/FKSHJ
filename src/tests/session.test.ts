@@ -42,6 +42,7 @@ describe("Session scoring", () => {
       boost: () => sounds.push("boost"),
       coin: () => sounds.push("coin"),
       gem: () => sounds.push("gem"),
+      ring: () => sounds.push("ring"),
       hit: () => sounds.push("hit"),
       jump: () => sounds.push("jump"),
     } as unknown as Sfx;
@@ -68,9 +69,11 @@ describe("Session scoring", () => {
     const result = session.result();
     assert.equal(result.hiScore, Math.floor(session.score));
     assert.equal(result.isNew, true);
-    assert.deepEqual(loadSave(), {
-      hiScore: Math.floor(session.score),
-      hiDistance: Math.floor(session.distance),
-    });
+    const saved = loadSave();
+    assert.equal(saved.hiScore, Math.floor(session.score));
+    assert.equal(saved.hiDistance, Math.floor(session.distance));
+    assert.equal(saved.totalCoins, session.coins);
+    assert.equal(saved.runs, 1);
+    assert.ok(saved.lastRunAt > 0);
   });
 });

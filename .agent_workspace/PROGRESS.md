@@ -17,21 +17,28 @@
 
 | 轮次 | 状态 | 说明 |
 | --- | --- | --- |
-| 准备 | 完成 | 规格、所有权、可玩骨架（测试 7 通过，生产构建成功） |
-| Round 1 | 执行中 | 云端 VM 并发上限为 3；本轮 3 云端 + 3 本机，覆盖 6 路角色 |
-| Round 2 | 未开始 | 靶向重构 |
+| 准备 | 完成 | 规格、所有权、可玩骨架 |
+| Round 1 | 完成 | 6 路已合并；见 ROUND1_BRIEF.md。14 测 + smoke/probe/build 绿 |
+| Round 2 | 派发中 | 云端 VM 上限 3：3 云端 + 3 本机 |
 | Round 3 | 未开始 | SOTA 打磨与验收 |
 | 归档合并 | 未开始 | 结构化 PR |
 
 ## Round 1 派发记录
 
-| 角色 | 简称 | 实际 slug | 环境 | Agent ID | 状态 |
-| --- | --- | --- | --- | --- | --- |
-| 架构引擎 | fable | claude-fable-5-thinking-xhigh | cloud | `bc-c3841b55-6495-55ed-b91f-0bfe541a404e` | 已完成（已摘并 engine/loop/constants/ARCHITECTURE） |
-| SOTA UX | fable | claude-fable-5-thinking-xhigh | cloud | `bc-680fc86e-e1a4-5034-8aea-9f8e61d7dd17` | 已完成（已摘并 theme/menus/hud/SOTA_BAR） |
-| 内容特效 | opus-fast | claude-opus-5-thinking-high-fast | cloud | `bc-287bff11-630f-5105-9ac1-e75ab4e735e8` | 运行中 |
-| 核心玩法 | opus-fast | claude-opus-5-thinking-high-fast | local | `bc-f3586f19-030d-5668-9bb1-afa8ace61564` | 已完成（物理/镜头/滑道已收编，session 已接 hop） |
-| 单测覆盖 | gpt-sol | gpt-5.6-sol-xhigh-fast | local | `bc-9fcce4c8-069a-5523-9d38-a0c8200a928f` | 已完成（14 测全绿，已收编测试文件） |
-| 探针基准 | gpt-sol | gpt-5.6-sol-xhigh-fast | local | `bc-aaa77fd6-0569-5a4c-948c-c5252e446880` | 已完成（bench/smoke/probe 已收编） |
+| 角色 | 环境 | Agent ID | 状态 |
+| --- | --- | --- | --- |
+| fable-arch | cloud | `bc-c3841b55-6495-55ed-b91f-0bfe541a404e` | 已合并 |
+| fable-sota | cloud | `bc-680fc86e-e1a4-5034-8aea-9f8e61d7dd17` | 已合并 |
+| opus-content | cloud | `bc-287bff11-630f-5105-9ac1-e75ab4e735e8` | 已合并 |
+| opus-core | local | `bc-f3586f19-030d-5668-9bb1-afa8ace61564` | 已合并 |
+| gpt-test | local | `bc-9fcce4c8-069a-5523-9d38-a0c8200a928f` | 已合并 |
+| gpt-probe | local | `bc-aaa77fd6-0569-5a4c-948c-c5252e446880` | 已合并 |
 
-平台约束：异步新云端 VM 上限为 3，因此 fable×2 + opus-content 走云端独立工作树；opus-core / gpt-test / gpt-probe 走本机隔离任务（文件所有权不重叠）。未静默更换模型 slug。
+## Round 2 派发计划
+
+1. fable-arch — 对照 BRIEF 复审架构，更新 ARCHITECTURE
+2. fable-sota — 泳圈造型 / 泡沫与滑道对齐 / SOTA P0
+3. opus-core — 落水失败、换道视觉与碰撞一致
+4. opus-content — 流式关卡、主题循环、BGM
+5. gpt-test — 新生成器 / hop / 存档回归
+6. gpt-probe — 更新 BENCH 快照与长局探针

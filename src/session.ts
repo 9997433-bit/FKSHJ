@@ -1,15 +1,18 @@
-import { LANES, PLAYER, SCORE } from "./data/constants";
+import { LANES, PLAYER, SCORE, SPEED } from "./data/constants";
 import { commitRun, loadSave } from "./data/save";
+import { drawBooster } from "./entities/booster";
+import { drawPickup } from "./entities/collectible";
+import { drawHazard } from "./entities/obstacle";
 import { Player } from "./entities/player";
 import { Sfx } from "./fx/audio";
-import { drawParticles, type Particle } from "./fx/particles";
-import { splash } from "./fx/splash";
+import { capParticles, drawParticles, MAX_PARTICLES, type Particle } from "./fx/particles";
+import { bigSplash, boostWake, sparkle, splash } from "./fx/splash";
 import { circleHit, sameLane } from "./game/collision";
 import { project } from "./game/camera";
 import { applyBoost, applyHit, comboBonus, stepSpeed } from "./game/physics";
 import { generateWorld, type WorldStuff } from "./world/levels";
 import { drawTrack } from "./world/track";
-import { drawFoam, drawSky } from "./world/water";
+import { drawFoam, drawSilhouettes, drawSky } from "./world/water";
 import { themeAt } from "./ui/theme";
 import { drawHud } from "./ui/hud";
 
@@ -42,13 +45,19 @@ export class Session {
     this.world = generateWorld(runId);
   }
 
+  get speed01(): number {
+    const t = (this.player.motion.speed - SPEED.base) / (SPEED.max - SPEED.base);
+    return Math.max(0, Math.min(1, t));
+  }
+
   result(): RunResult {
-    const saved = commitRun(this.score, this.distance);
+    const prev = loadSave();
+    const saved = commitRun(this.score, this.distance, this.coins);
     return {
       score: this.score,
       distance: this.distance,
       coins: this.coins,
-      isNew: this.score >= saved.hiScore && this.score > 0,
+      isNew: Math.floor(this.score) > prev.hiScore,
       hiScore: saved.hiScore,
     };
   }
@@ -80,6 +89,7 @@ export class Session {
 
   private collect(): void {
     const pz = 80;
+    const theme = themeAt(this.distance);
     for (const p of this.world.pickups) {
       if (p.taken) continue;
       const rel = p.z - this.distance;
@@ -87,17 +97,21 @@ export class Session {
       if (!sameLane(this.player.lane, p.lane)) continue;
       if (!circleHit(this.player.laneX, pz, PLAYER.radius, p.lane * LANES.width, rel, p.r)) continue;
       p.taken = true;
+      const at = project(p.lane * LANES.width, rel);
       if (p.kind === "coin") {
         this.coins += 1;
         this.addCombo(1, SCORE.coin);
+        sparkle(this.particles, at.x, at.y, theme.coin, 6);
         this.sfx.coin();
       } else if (p.kind === "gem") {
         this.addCombo(3, SCORE.gem);
+        sparkle(this.particles, at.x, at.y, theme.gem, 12);
         this.sfx.gem();
       } else {
         this.addCombo(2, SCORE.ring);
         this.player.invuln = Math.max(this.player.invuln, 0.6);
-        this.sfx.gem();
+        sparkle(this.particles, at.x, at.y, theme.ink, 14);
+        this.sfx.ring();
       }
     }
   }
@@ -120,6 +134,8 @@ export class Session {
         applyHit(this.player.motion);
         this.combo = 0;
         this.cleanHits = 0;
+        const at = project(h.lane * LANES.width, rel);
+        bigSplash(this.particles, at.x, at.y, themeAt(this.distance).foam, this.speed01);
         this.sfx.hit();
       }
     }
@@ -133,7 +149,9 @@ export class Session {
       if (!sameLane(this.player.lane, b.lane)) continue;
       b.used = true;
       applyBoost(this.player.motion);
-      this.sfx.boost();
+      const at = project(b.lane * LANES.width, Math.max(0, rel));
+      boostWake(this.particles, at.x, at.y, themeAt(this.distance).accent);
+      this.sfx.boost(b.tier);
     }
   }
 
@@ -150,11 +168,30 @@ export class Session {
 
   draw(ctx: CanvasRenderingContext2D): void {
     const theme = themeAt(this.distance);
-    drawSky(ctx, theme);
+    const speed01 = this.speed01;
+    drawSky(ctx, theme, this.time);
+    drawSilhouettes(ctx, theme, this.distance, this.time);
     drawTrack(ctx, this.distance, theme, this.time);
-    drawFoam(ctx, theme, this.time);
+    drawFoam(ctx, theme, this.time, speed01);
 
     const drawables: { z: number; draw: () => void }[] = [];
+
+    for (const b of this.world.boosters) {
+      if (b.used) continue;
+      const rel = b.z - this.distance;
+      if (rel < 0 || rel > 1800) continue;
+      drawables.push({
+        z: rel,
+        draw: () => {
+          const pr = project(b.lane * LANES.width, rel);
+          ctx.save();
+          ctx.translate(pr.x, pr.y);
+          ctx.scale(pr.s, pr.s);
+          drawBooster(ctx, b.tier, this.time, theme.accent);
+          ctx.restore();
+        },
+      });
+    }
 
     for (const p of this.world.pickups) {
       if (p.taken) continue;
@@ -167,18 +204,7 @@ export class Session {
           ctx.save();
           ctx.translate(pr.x, pr.y);
           ctx.scale(pr.s, pr.s);
-          if (p.kind === "ring") {
-            ctx.strokeStyle = theme.accent;
-            ctx.lineWidth = 6;
-            ctx.beginPath();
-            ctx.arc(0, 0, 22, 0, Math.PI * 2);
-            ctx.stroke();
-          } else {
-            ctx.fillStyle = p.kind === "gem" ? "#7cf7ff" : "#ffd166";
-            ctx.beginPath();
-            ctx.arc(0, 0, p.kind === "gem" ? 10 : 8, 0, Math.PI * 2);
-            ctx.fill();
-          }
+          drawPickup(ctx, p.kind, this.time + p.z * 0.01, theme.accent);
           ctx.restore();
         },
       });
@@ -195,10 +221,7 @@ export class Session {
           ctx.save();
           ctx.translate(pr.x, pr.y);
           ctx.scale(pr.s, pr.s);
-          ctx.fillStyle = h.kind === "duck" ? "#ffd166" : h.kind === "vortex" ? "#3d7dff" : "#ff6b9a";
-          ctx.beginPath();
-          ctx.arc(0, 0, h.r * 0.7, 0, Math.PI * 2);
-          ctx.fill();
+          drawHazard(ctx, h.kind, h.r, this.time + h.z * 0.01);
           ctx.restore();
         },
       });
@@ -216,23 +239,25 @@ export class Session {
         ctx.beginPath();
         ctx.ellipse(0, 18, 26, 8, 0, 0, Math.PI * 2);
         ctx.fill();
-        ctx.fillStyle = this.player.invuln > 0 ? "#fff7ae" : "#ff5dab";
+        ctx.fillStyle = this.player.invuln > 0 ? theme.accent : theme.hp;
         ctx.beginPath();
         ctx.ellipse(0, 0, 30, 18, 0, 0, Math.PI * 2);
         ctx.fill();
-        ctx.fillStyle = "#ffe6f1";
+        ctx.fillStyle = theme.ink;
         ctx.beginPath();
         ctx.ellipse(-8, -4, 10, 6, 0, 0, Math.PI * 2);
         ctx.fill();
         ctx.restore();
-        if (Math.random() < 0.4) splash(this.particles, pr.x, pr.y + 10, theme.foam);
+        if (Math.random() < 0.3 + speed01 * 0.4) {
+          splash(this.particles, pr.x, pr.y + 10, theme.foam, speed01);
+        }
       },
     });
 
     drawables.sort((a, b) => b.z - a.z);
     for (const d of drawables) d.draw();
 
-    if (this.particles.length > 360) this.particles.splice(0, this.particles.length - 360);
+    capParticles(this.particles, MAX_PARTICLES);
     drawParticles(ctx, this.particles);
 
     drawHud(ctx, {
