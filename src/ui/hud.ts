@@ -15,8 +15,8 @@ import { CANVAS } from "../data/constants";
  * - 模块在 Node 可安全 import（单测环境无 matchMedia/DOM，已守卫）。
  */
 
-/** 四种拾荒材料（GAME_SPEC §2）。 */
-export type ResourceKind = "plank" | "plastic" | "metal" | "rope";
+/** 四种拾荒材料（GAME_SPEC §2；键名与 constants.ResourceId 的建材子集对齐）。 */
+export type ResourceKind = "wood" | "plastic" | "metal" | "rope";
 
 /** 建筑图标 id（GAME_SPEC §4）；未知 id 回退为名称首字。 */
 export type BuildIcon = "floor" | "collector" | "purifier" | "fish" | "turret";
@@ -66,15 +66,15 @@ export const HUD_COLORS = {
   danger: "#ff8a5c",
   water: "#5ac8ff",
   food: "#8fe388",
-  plank: "#d29a5b",
+  wood: "#d29a5b",
   plastic: "#7fd7f0",
   metal: "#c2cdd8",
   rope: "#e6c07a",
 } as const;
 
-const RESOURCE_ORDER: readonly ResourceKind[] = ["plank", "plastic", "metal", "rope"];
+const RESOURCE_ORDER: readonly ResourceKind[] = ["wood", "plastic", "metal", "rope"];
 const RESOURCE_LABEL: Record<ResourceKind, string> = {
-  plank: "木板",
+  wood: "木板",
   plastic: "塑料",
   metal: "金属",
   rope: "绳索",
@@ -374,8 +374,8 @@ function drawResourceIcon(
   r: number,
 ): void {
   ctx.save();
-  if (kind === "plank") {
-    ctx.fillStyle = HUD_COLORS.plank;
+  if (kind === "wood") {
+    ctx.fillStyle = HUD_COLORS.wood;
     roundRect(ctx, cx - r, cy - r * 0.7, r * 2, r * 0.62, 2);
     ctx.fill();
     roundRect(ctx, cx - r * 0.8, cy + 0.08 * r, r * 2, r * 0.62, 2);
@@ -455,7 +455,7 @@ function drawBuildIcon(ctx: CanvasRenderingContext2D, slot: BuildSlot, cx: numbe
   const r = 10;
   ctx.save();
   if (slot.icon === "floor") {
-    ctx.fillStyle = HUD_COLORS.plank; // 2×2 地基格
+    ctx.fillStyle = HUD_COLORS.wood; // 2×2 地基格
     for (const dx of [-1, 0.14] as const)
       for (const dy of [-1, 0.14] as const) {
         roundRect(ctx, cx + dx * r * 0.92, cy + dy * r * 0.92, r * 0.8, r * 0.8, 2);

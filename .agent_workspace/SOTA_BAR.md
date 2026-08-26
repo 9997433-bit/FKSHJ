@@ -96,7 +96,7 @@ import { drawHud } from "./ui/hud";
 drawHud(ctx, {
   day: this.day,                        // 必填，其余全可选
   dayProgress01: this.dayProgress01,
-  resources: { plank: 12, plastic: 8, metal: 3, rope: 5 },
+  resources: { wood: 12, plastic: 8, metal: 3, rope: 5 }, // 键名对齐 constants.ResourceId
   water01: this.water / WATER_MAX,
   food01: this.food / FOOD_MAX,
   islanders: { fed: 3, total: 4 },
