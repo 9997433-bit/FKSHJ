@@ -201,7 +201,7 @@ export function drawSkiff(
   ctx.rotate((skiff.heading ?? 0) + sway.rot);
 
   hullShadow(ctx, a.bow, a.beam);
-  drawBowWash(ctx, a.bow, a.beam, a.stern, thrust, time, p);
+  drawBowWash(ctx, a.bow, a.beam, thrust, time, p);
   hullBody(
     ctx,
     a,
@@ -223,12 +223,16 @@ export function drawSkiff(
   ctx.lineWidth = 1.2;
   ctx.stroke();
 
-  ctx.strokeStyle = dim("#e0c48a", night, p);
-  ctx.lineWidth = 1.8;
-  for (const r of [4.2, 2.4]) {
-    ctx.beginPath();
-    ctx.ellipse(10, 0, r, r * 0.8, 0, 0, Math.PI * 2);
-    ctx.stroke();
+  // 盘着的缆绳：先描一圈暗的当绳缝，再压一圈亮的绳身。
+  // 只画亮色的话它和甲板同色，会糊成一坨奶油
+  for (const [color, width] of [["#6b4a22", 3], ["#e0c48a", 1.5]] as const) {
+    ctx.strokeStyle = dim(color, night, p);
+    ctx.lineWidth = width;
+    for (const r of [4.4, 2.5]) {
+      ctx.beginPath();
+      ctx.ellipse(10, 0, r, r * 0.8, 0, 0, Math.PI * 2);
+      ctx.stroke();
+    }
   }
 
   // 船舱：敞开的舱口最能和海盗那条闷罐子拉开距离
@@ -256,84 +260,81 @@ export function drawSkiff(
   ctx.fillRect(a.stern + 0.5, -a.sternBeam + 1.6, 3, (a.sternBeam - 1.6) * 2);
   drawOar(ctx, a.stern + 4, a.beam - 1, 1, 0.5 + thrust * 0.6, time * (3 + thrust * 5), night, p);
 
-  // 捞网：伸在右舷外的一个圈，冷却里往回收，看得出刚捞过
+  // 捞网：架在右舷上的一个小抄网，冷却里正往回收，看得出刚捞过一把
   const haul = clamp01((skiff.cooldown ?? 0) / 0.22);
   ctx.save();
-  ctx.translate(6, -a.beam + 1);
-  ctx.rotate(-0.5 + haul * 0.7);
-  ctx.strokeStyle = dim("#7d5327", night, p, 0.3);
-  ctx.lineWidth = 2;
+  ctx.translate(-2, -a.beam + 3);
+  ctx.rotate(-0.18 + haul * 0.28);
+  ctx.strokeStyle = dim("#8a5a2b", night, p, 0.3);
+  ctx.lineWidth = 1.6;
   ctx.beginPath();
-  ctx.moveTo(0, 0);
-  ctx.lineTo(9, -7);
+  ctx.moveTo(-5, 1.5);
+  ctx.lineTo(4.5, -1.6);
   ctx.stroke();
-  ctx.strokeStyle = withAlpha(p.foam, 0.5 - haul * 0.15);
-  ctx.lineWidth = 1.3;
+  ctx.strokeStyle = dim("#e0c48a", night, p, 0.35);
+  ctx.lineWidth = 1.1;
   ctx.beginPath();
-  ctx.ellipse(12.5, -9.5, 5.2, 4, -0.6, 0, Math.PI * 2);
+  ctx.ellipse(7, -2.4, 3.1, 2.4, -0.35, 0, Math.PI * 2);
   ctx.stroke();
+  ctx.strokeStyle = withAlpha(p.foam, 0.28);
+  ctx.lineWidth = 0.7;
   ctx.beginPath();
-  ctx.moveTo(8.4, -12);
-  ctx.lineTo(16.6, -7);
-  ctx.moveTo(9.4, -6.2);
-  ctx.lineTo(15.6, -12.8);
+  ctx.moveTo(5, -4.4);
+  ctx.lineTo(9, -0.4);
+  ctx.moveTo(5.2, -0.6);
+  ctx.lineTo(8.8, -4.2);
   ctx.stroke();
   ctx.restore();
 
-  // 船头灯：白天只是个铜点，夜里才亮，而且压得很低
-  const lamp = 0.12 + night * 0.5;
-  ctx.fillStyle = withAlpha(p.accent, 0.35 + night * 0.45);
+  // 船头灯：白天只是个铜点，夜里才亮。颜色是灯油的暖黄——
+  // 用 palette.accent 的话夜相位是青绿，一盏灯会亮得像信号灯
+  const lampColor = mixHex("#ffcb7d", p.glint, 0.35);
+  ctx.fillStyle = withAlpha(lampColor, 0.4 + night * 0.4);
   ctx.beginPath();
-  ctx.arc(a.bow - 6.5, 0, 2.2, 0, Math.PI * 2);
+  ctx.arc(a.bow - 6.5, 0, 2, 0, Math.PI * 2);
   ctx.fill();
   if (night > 0.05) {
-    const glow = ctx.createRadialGradient(a.bow - 6.5, 0, 1, a.bow - 6.5, 0, 22);
-    glow.addColorStop(0, withAlpha(p.accent, lamp * 0.5));
-    glow.addColorStop(1, withAlpha(p.accent, 0));
+    const glow = ctx.createRadialGradient(a.bow - 6.5, 0, 1, a.bow - 6.5, 0, 16);
+    glow.addColorStop(0, withAlpha(lampColor, 0.06 + night * 0.16));
+    glow.addColorStop(1, withAlpha(lampColor, 0));
     ctx.fillStyle = glow;
     ctx.beginPath();
-    ctx.arc(a.bow - 6.5, 0, 22, 0, Math.PI * 2);
+    ctx.arc(a.bow - 6.5, 0, 16, 0, Math.PI * 2);
     ctx.fill();
   }
 
   ctx.restore();
 }
 
-/** 船首分水线 + 尾流：贴着船体的两道白沫，随推力变长变亮。 */
+/**
+ * 船首分水线：贴着船帮的两道短白沫，随推力变长一点。
+ *
+ * 只到船腰、只压在船帮边上——尾迹是 `fx/splash.boatWake` 的粒子在管，
+ * 这里画长了就会在船后拖出两条谁都没在动的死线。
+ */
 function drawBowWash(
   ctx: CanvasRenderingContext2D,
   bow: number,
   beam: number,
-  stern: number,
   thrust: number,
   time: number,
   p: SeaPalette,
 ): void {
-  const k = 0.16 + thrust * 0.84;
+  const k = 0.2 + thrust * 0.8;
   ctx.save();
   ctx.lineCap = "round";
-  ctx.strokeStyle = withAlpha(p.foam, 0.1 + k * 0.28);
-  ctx.lineWidth = 1.5 + k * 0.9;
+  ctx.strokeStyle = withAlpha(p.foam, 0.08 + k * 0.2);
+  ctx.lineWidth = 1.2 + k * 0.8;
   for (const side of [-1, 1]) {
-    const wob = Math.sin(time * 7 + side) * 0.9 * k;
+    const wob = Math.sin(time * 7 + side) * 0.6 * k;
     ctx.beginPath();
-    ctx.moveTo(bow - 2, side * 1.6);
+    ctx.moveTo(bow - 2.5, side * 1.4);
     ctx.quadraticCurveTo(
-      bow - 12,
-      side * (beam + 2.5 + k * 3),
-      stern - 6 - k * 16,
-      side * (beam + 5 + k * 7) + wob,
+      bow - 9,
+      side * (beam + 1.2 + k * 1.6),
+      bow - 17 - k * 5,
+      side * (beam + 2 + k * 2.4) + wob,
     );
-    ctx.stroke();
-  }
-  // 尾板后面被搅起来的一小团
-  ctx.strokeStyle = withAlpha(p.foam, 0.06 + k * 0.22);
-  ctx.lineWidth = 1.2;
-  for (let i = 0; i < 3; i++) {
-    const u = i / 3;
-    const r = 2.6 + u * 4 + Math.abs(Math.sin(time * 5 + i)) * 1.6 * k;
-    ctx.beginPath();
-    ctx.ellipse(stern - 3 - u * (5 + k * 12), Math.sin(time * 4 + i * 2) * 2, r, r * 0.6, 0, 0, Math.PI * 2);
     ctx.stroke();
   }
   ctx.restore();
@@ -349,18 +350,20 @@ function drawOar(
   phase: number,
   night: number,
   p: SeaPalette,
+  shaft = "#c9a367",
+  blade = "#a9763f",
 ): void {
   ctx.save();
   ctx.translate(x, y * side);
   ctx.rotate(side * (0.5 + Math.sin(phase) * 0.3 * swing));
-  ctx.strokeStyle = dim("#c9a367", night, p, 0.3);
+  ctx.strokeStyle = dim(shaft, night, p, 0.3);
   ctx.lineWidth = 2;
   ctx.lineCap = "round";
   ctx.beginPath();
   ctx.moveTo(-3, 0);
   ctx.lineTo(11, side * 6);
   ctx.stroke();
-  ctx.fillStyle = dim("#a9763f", night, p, 0.3);
+  ctx.fillStyle = dim(blade, night, p, 0.3);
   ctx.beginPath();
   ctx.ellipse(13.5, side * 7.4, 4.4, 2.4, side * 0.4, 0, Math.PI * 2);
   ctx.fill();
@@ -418,12 +421,14 @@ export function drawPirate(
 
   hullShadow(ctx, a.bow, a.beam, 0.34);
 
-  // 桨：三对，划水的相位错开，停船开砍时只是轻轻拖着
+  // 桨：三对，划水的相位错开，停船开砍时只是轻轻拖着。
+  // 桨也得是脏木头色，用小船那套亮木会比船壳还显眼
   const stroke = moving ? 1 : 0.3;
   for (let i = 0; i < 3; i++) {
     const x = a.stern + 6 + i * 8;
     for (const side of [-1, 1] as const) {
-      drawOar(ctx, x, a.beam - 2, side, stroke, time * 4 + i * 1.1 + (side > 0 ? 0 : 0.5), night, p);
+      const phase = time * 4 + i * 1.1 + (side > 0 ? 0 : 0.5);
+      drawOar(ctx, x, a.beam - 2, side, stroke, phase, night, p, "#6d4c2c", "#4a331d");
     }
   }
 
@@ -453,12 +458,15 @@ export function drawPirate(
   ctx.lineTo(a.bow - 6, -4.6);
   ctx.closePath();
   ctx.fill();
-  ctx.strokeStyle = dim("#9aa2a8", night, p, 0.4);
-  ctx.lineWidth = 1.4;
+  // 倒钩：从船帮上长出来，钩尖朝前——线要压在船体里起头，
+  // 悬在船外的一小段会看着像两根掉在水里的棍子
+  ctx.strokeStyle = dim("#7c848a", night, p, 0.4);
+  ctx.lineWidth = 1.6;
+  ctx.lineCap = "round";
   for (const side of [-1, 1]) {
     ctx.beginPath();
-    ctx.moveTo(a.bow - 9, side * 5.2);
-    ctx.lineTo(a.bow - 2, side * 8.4);
+    ctx.moveTo(a.bow - 13, side * (a.beam * 0.5));
+    ctx.quadraticCurveTo(a.bow - 5, side * (a.beam * 0.62), a.bow - 1, side * 4.2);
     ctx.stroke();
   }
 
@@ -478,18 +486,18 @@ export function drawPirate(
     ctx.save();
     ctx.translate(a.bow - 8, 0);
     ctx.rotate(-0.8 + swingT * 1.4);
-    ctx.strokeStyle = withAlpha("#d8dee3", 0.35 + swingT * 0.35);
-    ctx.lineWidth = 2.2;
+    ctx.strokeStyle = withAlpha("#8d7a5f", 0.5 + swingT * 0.3);
+    ctx.lineWidth = 2;
     ctx.lineCap = "round";
     ctx.beginPath();
     ctx.moveTo(0, 0);
-    ctx.lineTo(12, 0);
+    ctx.lineTo(10, 0);
     ctx.stroke();
-    ctx.fillStyle = withAlpha(p.danger, 0.3 + swingT * 0.25);
+    ctx.fillStyle = withAlpha(mixHex("#b9c4cc", p.danger, 0.25), 0.45 + swingT * 0.3);
     ctx.beginPath();
-    ctx.moveTo(11, -3.4);
-    ctx.lineTo(17, 0);
-    ctx.lineTo(11, 3.4);
+    ctx.moveTo(9, -3);
+    ctx.lineTo(14.5, 0);
+    ctx.lineTo(9, 3);
     ctx.closePath();
     ctx.fill();
     ctx.restore();
@@ -584,7 +592,12 @@ function drawSail(
   ctx.restore();
 }
 
-/** 船尾的黑旗：向船后飘，白骨记号很小但认得出。 */
+/**
+ * 船尾的黑旗：一面往船后飘的三角旗。
+ *
+ * 做成尖角的燕尾而不是方块——方旗加白十字在俯视里会读成 HUD 标记，
+ * 旗子要有个被风扯出去的尖，才像布。
+ */
 function drawJollyFlag(
   ctx: CanvasRenderingContext2D,
   a: typeof PIRATE_ART,
@@ -592,36 +605,37 @@ function drawJollyFlag(
   night: number,
   p: SeaPalette,
 ): void {
-  const wave = Math.sin(time * 4.2) * 2.4;
-  const x0 = a.stern + 4;
+  const wave = Math.sin(time * 4.2) * 1.8;
+  const x0 = a.stern + 3;
   ctx.save();
   ctx.strokeStyle = dim("#2b1c10", night, p, 0.3);
-  ctx.lineWidth = 1.8;
+  ctx.lineWidth = 1.6;
   ctx.beginPath();
-  ctx.moveTo(x0, 0);
-  ctx.lineTo(x0, -1);
+  ctx.moveTo(x0 + 1, -4);
+  ctx.lineTo(x0 + 1, 4);
   ctx.stroke();
 
   ctx.beginPath();
-  ctx.moveTo(x0, -5.5);
-  ctx.quadraticCurveTo(x0 - 8, -6 + wave, x0 - 16, -4.5 + wave * 1.4);
-  ctx.lineTo(x0 - 16, 4.5 + wave * 1.4);
-  ctx.quadraticCurveTo(x0 - 8, 6 + wave, x0, 5.5);
+  ctx.moveTo(x0, -4);
+  ctx.quadraticCurveTo(x0 - 6, -4.4 + wave, x0 - 13, -2.6 + wave * 1.5);
+  ctx.lineTo(x0 - 9.5, wave * 1.5);
+  ctx.lineTo(x0 - 13, 2.6 + wave * 1.5);
+  ctx.quadraticCurveTo(x0 - 6, 4.4 + wave, x0, 4);
   ctx.closePath();
-  ctx.fillStyle = dim("#120c0a", night, p, 0.25);
+  ctx.fillStyle = dim("#140d0b", night, p, 0.25);
   ctx.fill();
-  ctx.strokeStyle = withAlpha(p.danger, 0.5);
-  ctx.lineWidth = 1;
+  ctx.strokeStyle = withAlpha(a.trim, 0.55);
+  ctx.lineWidth = 0.9;
   ctx.stroke();
 
-  // 骨头记号：两条交叉的白线加一个小骷髅点
-  ctx.strokeStyle = withAlpha("#e6e0d2", 0.7);
-  ctx.lineWidth = 1.2;
+  // 白骨记号：小到只是一撇，别抢船的形状
+  ctx.strokeStyle = withAlpha("#ded7c8", 0.6);
+  ctx.lineWidth = 0.9;
   ctx.beginPath();
-  ctx.moveTo(x0 - 12 + wave * 0.3, -3);
-  ctx.lineTo(x0 - 5 + wave * 0.2, 3);
-  ctx.moveTo(x0 - 12 + wave * 0.3, 3);
-  ctx.lineTo(x0 - 5 + wave * 0.2, -3);
+  ctx.moveTo(x0 - 8.5 + wave * 0.3, -1.8);
+  ctx.lineTo(x0 - 3.5 + wave * 0.15, 1.8);
+  ctx.moveTo(x0 - 8.5 + wave * 0.3, 1.8);
+  ctx.lineTo(x0 - 3.5 + wave * 0.15, -1.8);
   ctx.stroke();
   ctx.restore();
 }
