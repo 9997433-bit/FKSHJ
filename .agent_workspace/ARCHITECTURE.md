@@ -263,8 +263,9 @@ maxHp，不能靠重建洗血。无建造耗时。`refund` / `scrapValue`（半�
 三个新系统分属三个代理，**都没改既有 sim 文件**（rules/economy/
 threats/entities/sim/index.ts 本轮无人有写权，已核实）。它们是自带
 状态的纯数据模块，模块本体已落地，本节与实现逐项核对——**实现即
-真相**。还差的只有接线：由父调度器在 session.ts 按 §7.5 清单落地
-（直接按文件路径 import，不动 `sim/index.ts` 的桶口）。
+真相**。父调度器已把 bag/board/story 接进 session（直接按文件路径
+import，没动 `sim/index.ts` 的桶口）；两条接线（掉落/吃喝）留给
+Round 2，现状见 §7.5。
 
 三个模块共同满足的纪律（与 sim 一致，复核过）：纯数据 + 纯函数，
 不碰 DOM/Canvas/定时器；随机走传入的 `Rng`（同种子可复现）；只返回
@@ -389,33 +390,36 @@ hasUnlocked(state, id) / beatById(id)
 - 展示归 fable-sota：画 `state.beat` 的 title + body，kind 区分
   日记/电台样式。非模态，不暂停不弹窗。
 
-### 7.5 接线清单（父调度器在 session.ts 落地）
+### 7.5 接线现状与剩余清单（session.ts 归父调度器）
 
-- Session 新增字段（建议名）：`bag: Inventory`（createInventory()）、
-  `board: BoardState`（createBoard()）、`story: StoryState`
-  （createStory()）、`itemMisses: number`（掉落保底计数，初 0）。
+已落地（Round 1，核对过 session.ts）：
+
+- Session 字段：`bag: Inventory`（createInventory，DEFAULT_SLOTS）、
+  `board: BoardState`（createBoard）、`story: StoryState`（createStory）。
 - 帧序（§3）：updateEconomy / updateThreats 之后 →
-  `updateBoard(this.board, this.res, dt, this.rng)` →
-  `this.story = updateStory(this.story, { day: this.day,
-  buildings: 各类建筑计数, elapsed: this.time })`。`this.over` 时
-  整条链照旧跳过（board/story 都是不调用即冻结）。
-- **捞取掉物品线**（tryScoop 成功后，数在 constants.ITEM_DROP）：
-  掷 `rng() < chance`，或 `itemMisses ≥ pityScoops` 时强制命中；
-  命中则从袋装物品（建议排除与资源同名的四种散料）等权抽一件
-  `addItem(bag, id, 1, { partial: true })` 并清零 itemMisses，
-  未命中 itemMisses += 1。
-- **吃喝线**（HUD 点袋子）：id 在 constants.ITEM_USE 表里 →
-  `removeItem(bag, id, 1)` 成功后按表 `gain(res, …)` 入库。
-- **交单线**（HUD 点条子）：`complete(this.board, this.res, id)`；
-  ok 走 build 系音效，cannot-afford 走 deny + `completeHint`。
-- 事件 → 表现建议（opus-content 自选）：request-posted → warn 轻版、
-  request-done → scoop 系、request-expired → deny 系；story 上新条
-  → 轻提示音。
-- `snapshot()`（探针兼容）**只加不改**：建议 `bagItems`
-  （totalItems）、`boardOpen / boardDone`（boardSummary）、
-  `storyUnlocked`（storyProgress）。老字段名与语义都不许动。
-- `result()` / save.ts 如要记生涯交单数、解锁数：只加可选字段，
-  读侧缺省回退 0（save.ts 的 num() 已是这个语义）。
+  `updateBoard(board, res, dt, rng)` → `story = updateStory(story,
+  { day, buildings 计数, elapsed })`。over 时整条链跳过
+  （board/story 不调用即冻结）。
+- 捞取入袋：tryScoop 成功后 `addItem(bag, haul.kind, n,
+  { partial: true })`——捞到的建材**同步映射**进袋（同名 id 的设计
+  用途），溢出丢弃。
+- 交单：键位 Q/E 选单交单走 `complete(board, res, id)`；HUD 显示
+  日记卡（story.beat 的 title/body）与当前条子（quest）。
+
+留给 Round 2 的两条线（见 ROUND2_BRIEF 第 1–2 条）：
+
+- **掉落线**（数在 constants.ITEM_DROP，接线即真相）：捞取成功后
+  掷 `rng() < chance`，或连续 `pityScoops` 次未中时强制命中；命中
+  从目录物（排除与资源同名的四种散料）抽一件
+  `addItem(bag, id, 1, { partial: true })` 并清零保底计数。
+  实现放 inventory 侧（`rollItemDrop`）、session 只调用。
+- **吃喝线**（汇率在 constants.ITEM_USE）：HUD 点袋子，id 在表里
+  → `removeItem(bag, id, 1)` 成功后按表 `gain(res, …)` 入库。
+
+硬约束（Round 2 起生效）：`snapshot()` **冻结**——不加字段不改语义，
+探针哈希须保持 `728b59b5`；新系统状态走 HUD 与 `result()` 结算展示，
+不进 snapshot。`result()` / save.ts 要记生涯交单数、解锁数时只加
+可选字段，读侧缺省回退 0（save.ts 的 num() 已是这个语义）。
 
 ### 7.6 constants 第三段现状（fable-arch）
 
@@ -428,14 +432,17 @@ hasUnlocked(state, id) / beatById(id)
 
 inventory / expand 本轮**刻意自带数值**（见各自文件头注释「等定型
 了再搬过去」）；收编（原件改为 import constants）待后续轮、归各
-属主，收编前改平衡改原件、同步镜像。内容表（物品/模板/条目）住
-各自模块不进 constants。既有两段（CANVAS/LOOP/…/SKIFF）本轮一个
-数没动，探针基线不受影响。
+属主，收编前改平衡改原件、同步镜像。ROUND2_BRIEF 第 4 条说的
+「expand.ts 改读 REQUESTS」即指收编到这里的 `BOARD` 镜像（表名以
+本文件为准），且收编后必须保持「开局 5 秒内不贴单、不抽 rng」
+（BOARD.firstS = 12 本来就满足）。内容表（物品/模板/条目）住各自
+模块不进 constants。既有两段（CANVAS/LOOP/…/SKIFF）本轮一个数
+没动，探针基线不受影响。
 
 ## 8. 未决事项（交给后续轮）
 
-- **新系统还没接进 session**：模块已就位，接线清单在 §7.5，归父
-  调度器；接完 GAME_SPEC §9 的新验收条目才可全绿。
+- **两条接线待 Round 2**：ITEM_DROP 掉落线与 ITEM_USE 吃喝线
+  （§7.5）；接完 GAME_SPEC §9 的新验收条目才可全绿。
 - BAG / BOARD 的收编（inventory / expand 原件改为 import constants）
   待后续轮，归各属主；收编前 constants 里是镜像。
 - 道具袋与请求板暂不相通：条子只收资源账本里的建材，「收袋装物品

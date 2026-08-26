@@ -109,8 +109,9 @@ TypeScript + Vite + Canvas 2D + Web Audio。零后端，禁止 React/Three/大�
 - 交单**原子**：材料全够才扣（pay），奖励立即入库（超上限截断）；
   连交 3 张不断档奖励 ×1.5；过期只丢奖励、清连击，**从不倒扣**。
 - 顺手产日记（who/text/tone，留 12 条）；完成数/连击进结算。
-- 已真接进 sim 层（纯函数、走 Rng 可复现）；session 接线后探针
-  不点 UI 也能观测到板面与库存变化。
+- 已真接进 sim 层（纯函数、走 Rng 可复现），session 已接线；
+  单测可直接读 `BoardState` 与库存验证，不经 UI（注意
+  `Session.snapshot()` 已冻结，板面状态不进 snapshot）。
 
 ## 9. 验收
 
