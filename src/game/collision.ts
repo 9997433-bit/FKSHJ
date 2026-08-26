@@ -1,3 +1,5 @@
+import { LANES } from "../data/constants";
+
 export function circleHit(
   ax: number,
   az: number,
@@ -42,4 +44,13 @@ export function nearMiss(
 
 export function sameLane(a: number, b: number, tol = 0.35): boolean {
   return Math.abs(a - b) <= tol;
+}
+
+/**
+ * Widest lane gap two radii can still touch across. Pass it as the `sameLane` tolerance when
+ * the first argument is a continuous lane (mid-switch, or slid up the bank) and the prefilter
+ * can never throw away a hit the circle test would have found.
+ */
+export function laneReach(ra: number, rb: number): number {
+  return (ra + rb) / LANES.width;
 }

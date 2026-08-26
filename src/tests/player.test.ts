@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { LANES, PLAYER } from "../data/constants";
 import { hopCurve, Player } from "../entities/player";
+import { chuteBank } from "../game/camera";
+import { FALL_TIME } from "../game/physics";
 
 describe("Player lane switching", () => {
   it("switches lanes once the current transition completes", () => {
@@ -68,5 +70,82 @@ describe("Player lane switching", () => {
     assert.equal(player.airborne, true);
     assert.equal(player.consumeHopStart(), true);
     assert.equal(player.consumeHopStart(), false);
+  });
+
+  it("keeps the lane on the side of the chute the raft is still on", () => {
+    const player = new Player();
+    player.trySwitch(1);
+
+    player.step(LANES.switchMs / 4000);
+    assert.equal(player.lane, 0);
+    assert.ok(player.collisionLane > 0 && player.collisionLane < 0.5);
+    assert.equal(player.laneX, player.collisionLane * LANES.width);
+
+    player.step(LANES.switchMs / 2000);
+    assert.equal(player.lane, 1);
+  });
+});
+
+/** World depth where the chute banks hardest to the left, throwing a raft at the right wall. */
+const HARD_BEND_Z = 800;
+const FRAME = 1 / 60;
+
+function inLane(lane: number, z: number): Player {
+  const player = new Player();
+  player.z = z;
+  for (let i = 0; i < Math.abs(lane); i++) {
+    player.trySwitch(lane < 0 ? -1 : 1);
+    player.step(LANES.switchMs / 1000);
+  }
+  return player;
+}
+
+/** Step until `done`, capped so a broken condition fails the assertion instead of hanging. */
+function stepUntil(player: Player, done: () => boolean, limit: number): number {
+  let elapsed = 0;
+  while (!done() && elapsed < limit) {
+    player.step(FRAME);
+    elapsed += FRAME;
+  }
+  return elapsed;
+}
+
+describe("Player washing off the chute", () => {
+  it("rides up the bank and washes out if it stays out there", () => {
+    assert.ok(chuteBank(HARD_BEND_Z) < -0.9, "fixture wants the sharpest part of a bend");
+    const player = inLane(LANES.max, HARD_BEND_Z);
+
+    stepUntil(player, () => player.offChute, 2);
+    assert.equal(player.offChute, true);
+    assert.ok(player.collisionLane > LANES.max, "the bend should slide the raft past its lane");
+    assert.equal(player.fallen, false);
+
+    const held = stepUntil(player, () => player.fallen, FALL_TIME * 3);
+    assert.ok(Math.abs(held - FALL_TIME) < 0.05, `washed out after ${held}s, not ${FALL_TIME}s`);
+    assert.equal(player.hp, 0);
+  });
+
+  it("pays the wipeout timer back once the raft is over water again", () => {
+    const player = inLane(LANES.max, HARD_BEND_Z);
+    stepUntil(player, () => player.offChute, 2);
+    stepUntil(player, () => false, FALL_TIME * 0.5);
+    assert.ok(player.fallT > 0);
+
+    assert.equal(player.trySwitch(-1), true);
+    stepUntil(player, () => false, FALL_TIME * 2);
+    assert.equal(player.offChute, false);
+    assert.equal(player.fallT, 0);
+    assert.equal(player.fallen, false);
+    assert.equal(player.hp, PLAYER.maxHp);
+  });
+
+  it("leaves the middle lanes alone through the same bend", () => {
+    for (const lane of [-1, 0, 1]) {
+      const player = inLane(lane, HARD_BEND_Z);
+      stepUntil(player, () => player.offChute, 2);
+      assert.equal(player.slip, 0);
+      assert.equal(player.laneX, lane * LANES.width);
+      assert.equal(player.fallen, false);
+    }
   });
 });

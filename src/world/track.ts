@@ -1,5 +1,6 @@
 import { CANVAS, GEN, LANES } from "../data/constants";
 import { HORIZON_Y, project, syncCamera } from "../game/camera";
+import { CHUTE } from "../game/physics";
 import type { ThemePaint } from "../ui/theme";
 
 /** Slab depth, and enough slabs to floor the camera's whole view. */
@@ -7,9 +8,9 @@ const DZ = 68;
 const STEPS = Math.ceil(GEN.horizon / DZ);
 const DEPTH = STEPS * DZ;
 const W = LANES.width;
-/** Chute half-widths, in lanes: where the water ends and where the wall lip sits. */
-const FLOOR = 2.85;
-const WALL = 3.3;
+/** Chute half-widths, in lanes. Shared with the sim so the painted edge is the one you fall off. */
+const FLOOR = CHUTE.floor;
+const WALL = CHUTE.wall;
 /** Wall height and post overhang, in screen pixels at unit scale. */
 const WALL_H = 34;
 const POST_UP = 15;

@@ -1,6 +1,14 @@
 import { LANES, PLAYER, SPEED } from "../data/constants";
 import { chuteBank } from "../game/camera";
-import { applyWallScrape, type Motion } from "../game/physics";
+import {
+  applyWallScrape,
+  FALL_TIME,
+  offChuteDepth,
+  slipPull,
+  stepFall,
+  stepSlip,
+  type Motion,
+} from "../game/physics";
 
 /** Press this early and the hop still fires the moment the cooldown clears. */
 const JUMP_BUFFER = 0.13;
@@ -20,24 +28,57 @@ export function hopCurve(t: number): number {
 }
 
 export class Player {
-  lane = 0;
   fromLane = 0;
   toLane = 0;
   switchT = 1;
   z = 0;
-  hp = PLAYER.maxHp;
+  hp: number = PLAYER.maxHp;
   jumpT = 0;
   jumpCd = 0;
   jumpBuffer = 0;
   invuln = 0;
   wallCd = 0;
+  /** Lanes of outward slide the current bend has pushed on: 0 while the flow still holds the raft. */
+  slip = 0;
+  /** Seconds spent off the flow so far. */
+  fallT = 0;
+  /** Washed off the chute for good (GAME_SPEC §4.4). The run is over. */
+  fallen = false;
   motion: Motion = { speed: SPEED.base, boostLeft: 0 };
   private hopStarted = false;
 
-  get laneX(): number {
+  /** Lane the raft is steering through, ignoring whatever the bank is doing to it. */
+  get laneCenter(): number {
     const t = this.switchT;
     const ease = t * t * (3 - 2 * t);
-    return (this.fromLane + (this.toLane - this.fromLane) * ease) * LANES.width;
+    return this.fromLane + (this.toLane - this.fromLane) * ease;
+  }
+
+  /** Where the raft really sits, in lane units: mid-switch and bank slide included. */
+  get collisionLane(): number {
+    return this.laneCenter + this.slip;
+  }
+
+  /**
+   * The lane the raft reads as being in on screen. It flips at the midpoint of a switch
+   * rather than the moment one starts, so collisions never run ahead of the picture.
+   */
+  get lane(): number {
+    return Math.max(LANES.min, Math.min(LANES.max, Math.round(this.collisionLane)));
+  }
+
+  get laneX(): number {
+    return this.collisionLane * LANES.width;
+  }
+
+  /** Past the water's edge and riding the wall: the wipeout timer is running. */
+  get offChute(): boolean {
+    return offChuteDepth(this.collisionLane) > 0;
+  }
+
+  /** 0..1 through the wipeout timer, for anything that wants to warn the player. */
+  get offChute01(): number {
+    return Math.min(1, this.fallT / FALL_TIME);
   }
 
   get airborne(): boolean {
@@ -86,7 +127,6 @@ export class Player {
       this.switchT = Math.min(1, this.switchT + dt / (LANES.switchMs / 1000));
       if (this.switchT === 1) this.fromLane = this.toLane;
     }
-    this.lane = this.toLane;
     this.jumpT = Math.max(0, this.jumpT - dt);
     this.jumpCd = Math.max(0, this.jumpCd - dt);
     this.invuln = Math.max(0, this.invuln - dt);
@@ -97,6 +137,7 @@ export class Player {
       this.hopStarted = this.startHop();
     }
 
+    this.slide(dt);
     this.motion.bank = this.carve();
   }
 
@@ -105,6 +146,23 @@ export class Player {
     this.hp -= 1;
     this.invuln = 0.85;
     return true;
+  }
+
+  /**
+   * A bend throws the raft at the outside wall. Hug the rim through one and it climbs off the
+   * flow, grinding for speed all the way (§4.2) until the water lets go entirely (§4.4).
+   * The pull reads the steered lane, not the slid one, so the slide cannot feed itself.
+   */
+  private slide(dt: number): void {
+    this.slip = stepSlip(this.slip, slipPull(this.laneCenter, chuteBank(this.z), this.airborne), dt);
+    const off = this.offChute;
+    if (off) this.scrapeWall();
+    this.fallT = stepFall(this.fallT, off, dt);
+    if (!this.fallen && this.fallT >= FALL_TIME) {
+      this.fallen = true;
+      // Ending through hp keeps one failure path: the shell reads `fallen` for the wording.
+      this.hp = 0;
+    }
   }
 
   /** Leaning on a wall you cannot pass: costs speed rather than doing nothing at all. */
