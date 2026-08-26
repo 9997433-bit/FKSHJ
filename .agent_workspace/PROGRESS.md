@@ -19,8 +19,8 @@
 | 轮次 | 状态 | 说明 |
 | --- | --- | --- |
 | 准备 | 完成 | 清滑道代码、新规格、隔离分支已推 |
-| Round 1 | 进行中 | 3 云端跑着；3 本机已收编 |
-| Round 2 | 未开始 | |
+| Round 1 | 完成 | 六路交卷；`session.ts` / `main.ts` 已由父调度器接线 |
+| Round 2 | 待派发 | 统一数值表、绘制质感、局级测试、浏览器可玩 |
 | Round 3 | 未开始 | |
 | 归档合并 | 未开始 | |
 
@@ -28,9 +28,9 @@
 
 | 角色 | 环境 | Agent ID | 状态 |
 | --- | --- | --- | --- |
-| fable-arch | cloud | `bc-658d8d8d-37c1-5405-84a2-37bc3e355b2a` | 已完成（ARCHITECTURE + 数值表已在分支上） |
-| fable-sota | cloud | `bc-40ef3122-9243-503b-915a-449b96c3ec03` | 进行中 |
-| opus-content | cloud | `bc-6b3e6f99-a4b1-5e24-9993-57af91344234` | 进行中 |
+| fable-arch | cloud | `bc-658d8d8d-37c1-5405-84a2-37bc3e355b2a` | 已完成 |
+| fable-sota | cloud | `bc-40ef3122-9243-503b-915a-449b96c3ec03` | 已完成 |
+| opus-content | cloud | `bc-6b3e6f99-a4b1-5e24-9993-57af91344234` | 已完成 |
 | opus-core | local | `bc-3ba5f66e-a5a2-5ac1-ab94-9b21edbb7260` | 已交卷（sim/小船/输入） |
 | gpt-test | local | `bc-ebf2d1df-9248-5220-93c7-06151af93865` | 已交卷（4 测） |
 | gpt-probe | local | `bc-5ac6090a-b4ff-56d2-bd56-15e566fa3366` | 已交卷（bench/probe） |
