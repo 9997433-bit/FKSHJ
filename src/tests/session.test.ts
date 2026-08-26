@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { beforeEach, describe, it } from "node:test";
-import { SCORE } from "../data/constants";
+import { SAVE_KEY, SCORE } from "../data/constants";
 import { loadSave } from "../data/save";
 import { makePickup } from "../entities/collectible";
 import type { Sfx } from "../fx/audio";
@@ -32,6 +32,15 @@ Object.defineProperty(globalThis, "localStorage", {
   configurable: true,
   value: localStorageMock,
 });
+
+const silentSfx = {
+  boost: () => {},
+  coin: () => {},
+  gem: () => {},
+  ring: () => {},
+  hit: () => {},
+  jump: () => {},
+} as unknown as Sfx;
 
 describe("Session scoring", () => {
   beforeEach(() => localStorage.clear());
@@ -75,5 +84,26 @@ describe("Session scoring", () => {
     assert.equal(saved.totalCoins, session.coins);
     assert.equal(saved.runs, 1);
     assert.ok(saved.lastRunAt > 0);
+  });
+
+  it("marks a new record only when the score beats the previous high score", () => {
+    localStorage.setItem(
+      SAVE_KEY,
+      JSON.stringify({ hiScore: 500, hiDistance: 1000, lastRunAt: 1, runs: 2, totalCoins: 7 }),
+    );
+
+    for (const score of [499, 500]) {
+      const session = new Session(silentSfx, score);
+      session.score = score;
+      const result = session.result();
+      assert.equal(result.isNew, false);
+      assert.equal(result.hiScore, 500);
+    }
+
+    const winner = new Session(silentSfx, 501);
+    winner.score = 501;
+    const result = winner.result();
+    assert.equal(result.isNew, true);
+    assert.equal(result.hiScore, 501);
   });
 });

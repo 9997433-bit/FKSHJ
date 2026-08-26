@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { LANES } from "../data/constants";
-import { Player } from "../entities/player";
+import { LANES, PLAYER } from "../data/constants";
+import { hopCurve, Player } from "../entities/player";
 
 describe("Player lane switching", () => {
   it("switches lanes once the current transition completes", () => {
@@ -37,5 +37,36 @@ describe("Player lane switching", () => {
     }
     assert.equal(player.lane, LANES.min);
     assert.equal(player.trySwitch(-1), false);
+  });
+
+  it("lifts along the hop curve and returns to the water", () => {
+    const player = new Player();
+
+    assert.equal(player.hopLift(), 0);
+    assert.equal(player.tryJump(), true);
+    player.step(PLAYER.jumpMs / 2000);
+
+    assert.ok(player.hopLift() > 0);
+    assert.equal(player.hopLift(50), hopCurve(player.hopT) * 50);
+
+    player.step(PLAYER.jumpMs / 2000);
+    assert.equal(player.airborne, false);
+    assert.equal(player.hopLift(), 0);
+  });
+
+  it("reports a buffered hop start exactly once", () => {
+    const player = new Player();
+
+    assert.equal(player.consumeHopStart(), false);
+    assert.equal(player.tryJump(), true);
+    player.step(PLAYER.jumpMs / 1000);
+    assert.equal(player.tryJump(), false);
+
+    const cooldownGap = (PLAYER.jumpCooldownMs - PLAYER.jumpMs) / 1000;
+    player.step(cooldownGap + 0.001);
+
+    assert.equal(player.airborne, true);
+    assert.equal(player.consumeHopStart(), true);
+    assert.equal(player.consumeHopStart(), false);
   });
 });

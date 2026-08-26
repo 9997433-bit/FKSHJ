@@ -48,11 +48,35 @@ describe("save data", () => {
     assert.equal(second.hiDistance, 1300);
     assert.equal(second.runs, 2);
     assert.equal(second.totalCoins, 6);
+    assert.ok(second.lastRunAt >= first.lastRunAt);
 
     const loaded = loadSave();
     assert.equal(loaded.hiScore, 950);
     assert.equal(loaded.hiDistance, 1300);
     assert.equal(loaded.runs, 2);
     assert.equal(loaded.totalCoins, 6);
+    assert.equal(loaded.lastRunAt, second.lastRunAt);
+  });
+
+  it("timestamps every commit and accumulates only whole non-negative coins", () => {
+    const originalNow = Date.now;
+    let now = 1_700_000_000_000;
+    Date.now = () => now;
+
+    try {
+      const first = commitRun(10, 20, 3.9);
+      assert.equal(first.lastRunAt, now);
+      assert.equal(first.runs, 1);
+      assert.equal(first.totalCoins, 3);
+
+      now += 2_500;
+      const second = commitRun(9, 19, -4);
+      assert.equal(second.lastRunAt, now);
+      assert.equal(second.runs, 2);
+      assert.equal(second.totalCoins, 3);
+      assert.deepEqual(loadSave(), second);
+    } finally {
+      Date.now = originalNow;
+    }
   });
 });

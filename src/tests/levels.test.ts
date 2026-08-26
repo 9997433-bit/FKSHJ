@@ -6,9 +6,11 @@ describe("levels", () => {
   it("is deterministic for a seed", () => {
     const a = generateWorld(7);
     const b = generateWorld(7);
-    assert.equal(a.pickups.length, b.pickups.length);
-    assert.equal(a.hazards.length, b.hazards.length);
-    assert.deepEqual(a.pickups[0], b.pickups[0]);
+
+    assert.ok(a.pickups.length > 0);
+    assert.ok(a.hazards.length > 0);
+    assert.ok(a.boosters.length > 0);
+    assert.deepEqual(a, b);
   });
 
   it("generates different worlds for different seeds", () => {
