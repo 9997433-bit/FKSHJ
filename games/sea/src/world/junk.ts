@@ -12,7 +12,7 @@
  *
  * 「长什么样」不在这个文件里：本体形状全部走 `world/items.ts` 的外观登记表
  * （`itemArt` / `drawItemBody`）。本模块只管漂浮物**在水面上**的那一层——
- * 水下影、吃水泡沫、随浪摇摆、沉没淡出。物品目录 `data/catalog.ts` 到位后，
+ * 水下影、吃水泡沫、月光镶边、随浪摇摆、沉没淡出。物品目录 `data/catalog.ts` 到位后，
  * `registerItemArt` 登记的新道具在这里不用改一行就能漂起来：
  * `drawJunk` 接受任意 id，没登记的画成「未知包裹」。
  *
@@ -27,8 +27,8 @@
 import { CANVAS, JUNK_LOOKS, SALVAGE } from "../data/constants";
 import { SKIFF } from "../entities/skiff";
 import { RAFT_ORIGIN, TILE } from "../sim/rules";
-import { drawItemBody, itemArt, itemLabel } from "./items";
-import { mixHex, swayAt, withAlpha } from "./ocean";
+import { drawItemBody, itemArt, itemLabel, type ItemArt } from "./items";
+import { MOONLIGHT, mixHex, moonRim, nightness, swayAt, withAlpha } from "./ocean";
 
 /** 能捞到的四种材料（`SALVAGE.weights` 的键，也是 ResourceId 的子集）。 */
 export type JunkKind = "wood" | "plastic" | "metal" | "rope";
@@ -496,32 +496,90 @@ export function junkFade(age = 0): number {
   return clamp01(left / SINK_FADE_S);
 }
 
+export type JunkDrawOpts = {
+  /** 夜色浓度 0..1；不给按 `time` 算（与 `world/craft.ts` 同一套 `nightness`） */
+  night01?: number;
+};
+
+/** 月光镶边往外让出的像素：够咬住轮廓，又不至于把小件糊成一团光。 */
+const NIGHT_RIM_PX = 2.4;
+
+/** 满夜时镶边的不透明度。反光不是发光，压在半透明以下。 */
+const NIGHT_RIM_ALPHA = 0.42;
+
 /** 整片海的漂浮物。 */
-export function drawJunkField(ctx: CanvasRenderingContext2D, field: JunkField, time: number): void {
-  for (const j of field.items) drawJunk(ctx, j, time);
+export function drawJunkField(
+  ctx: CanvasRenderingContext2D,
+  field: JunkField,
+  time: number,
+  opts: JunkDrawOpts = {},
+): void {
+  // 夜色一片海只算一次，十几件东西不必各调一遍 nightness
+  const night = clamp01(opts.night01 ?? nightness(time));
+  for (const j of field.items) drawJunk(ctx, j, time, { night01: night });
 }
 
 /**
- * 单件漂浮物：水下影 + 吃水泡沫 + 本体，随涌浪摇摆，快沉时淡出下沉。
+ * 夜里给剪影垫的一层月光背板：本体放大 `NIGHT_RIM_PX` 像素、整体涂成月光色，
+ * 只有露在本体外面的那一圈看得见——等于沿着**真实轮廓**镶了一道边。
+ *
+ * 为什么不直接描边：剪影库里一件东西是十几条互不相连的路径（桶身 + 桶箍 +
+ * 提手），根本没有一条「外轮廓」可以 stroke。放大重画一遍是唯一贴得住真形状
+ * 的办法；代价是夜里每件多画一遍，同屏封顶 `SALVAGE.maxAfloat` 件，扛得住。
+ */
+function nightRim(
+  ctx: CanvasRenderingContext2D,
+  art: ItemArt,
+  r: number,
+  time: number,
+  night: number,
+  alpha: number,
+): void {
+  const edge = moonRim(art.tint);
+  // 三个色号统一成月光色，画出来就是一片纯色的剪影；稀有柔光归本体那一遍画，
+  // 背板再来一圈只会把边缘糊掉
+  const plate: ItemArt = { ...art, tint: edge, dark: edge, accent: edge, rare: 0 };
+  const grow = (r + NIGHT_RIM_PX) / r;
+  ctx.save();
+  ctx.globalAlpha = alpha * night * NIGHT_RIM_ALPHA;
+  ctx.scale(grow, grow);
+  drawItemBody(ctx, plate, r, time);
+  ctx.restore();
+}
+
+/**
+ * 单件漂浮物：水下影 + 吃水泡沫 + 月光镶边 + 本体，随涌浪摇摆，快沉时淡出下沉。
  *
  * 本体交给 `world/items.ts`：`kind` 是什么 id 就画什么，没登记的画成
  * 「未知包裹」。所以目录里新加的道具丢进 `JunkField` 就能漂，
  * 这里不需要再来一个 switch。
+ *
+ * 夜里多两笔：暗斑压淡（深水已经够黑，再压只会把轮廓一起吃掉）、
+ * 水线提亮并偏冷、本体底下垫一圈月光边。`night01` 为 0 时这三笔全部退回原样，
+ * 白天逐像素不变。
  */
-export function drawJunk(ctx: CanvasRenderingContext2D, j: JunkView, time: number): void {
+export function drawJunk(
+  ctx: CanvasRenderingContext2D,
+  j: JunkView,
+  time: number,
+  opts: JunkDrawOpts = {},
+): void {
   const art = itemArt(junkArtId(j));
   const r = j.r ?? art.r;
   const phase = j.phase ?? 0;
   const fade = junkFade(j.age ?? 0);
   if (fade <= 0) return;
+  const night = clamp01(opts.night01 ?? nightness(time));
   const sway = swayAt(j.x, j.y, time + phase, 1);
   const x = j.x + sway.dx;
   const y = j.y + sway.dy;
   // 快沉的东西缩一点，看起来是往水里陷
   const scale = 0.75 + fade * 0.25;
 
+  // 水下影：夜里深水本身已经接近黑，这块暗斑不再帮忙托住东西，
+  // 只会连着轮廓一起吃掉，所以随夜色让开一部分
   ctx.save();
-  ctx.globalAlpha = 0.26 * fade;
+  ctx.globalAlpha = 0.26 * fade * (1 - night * 0.45);
   ctx.fillStyle = "#01121f";
   ctx.beginPath();
   ctx.ellipse(x + 3, y + 4, r * 0.95, r * 0.8, 0, 0, Math.PI * 2);
@@ -529,10 +587,11 @@ export function drawJunk(ctx: CanvasRenderingContext2D, j: JunkView, time: numbe
   ctx.restore();
 
   // 吃水泡沫：白里掺一点本体的颜色。1× 缩放下本体只剩十几个像素，
-  // 这圈染了色的水线是「远处那件是什么」的第一个线索
+  // 这圈染了色的水线是「远处那件是什么」的第一个线索。
+  // 夜里它接的是月光而不是日光，所以提亮一档、色温往冷里偏
   ctx.save();
-  ctx.globalAlpha = 0.32 * fade;
-  ctx.strokeStyle = mixHex("#ffffff", art.tint, 0.4);
+  ctx.globalAlpha = (0.32 + night * 0.2) * fade;
+  ctx.strokeStyle = mixHex(mixHex("#ffffff", art.tint, 0.4), MOONLIGHT, night * 0.45);
   ctx.lineWidth = 1.5;
   ctx.beginPath();
   ctx.ellipse(x, y, r * 1.15, r * 0.95, sway.rot, 0, Math.PI * 2);
@@ -544,6 +603,7 @@ export function drawJunk(ctx: CanvasRenderingContext2D, j: JunkView, time: numbe
   ctx.translate(x, y);
   ctx.rotate((j.a ?? 0) + sway.rot);
   ctx.scale(scale, scale);
+  if (night > 0.02) nightRim(ctx, art, r, time + phase, night, fade);
   drawItemBody(ctx, art, r, time + phase);
   ctx.restore();
 }

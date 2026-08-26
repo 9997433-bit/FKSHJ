@@ -220,6 +220,23 @@ export function nightness(elapsed: number): number {
   return 0;
 }
 
+/**
+ * 月光镶边色 —— 夜里把深色轮廓从深色海面上「切」出来的那圈冷白。
+ *
+ * 夜相位的水是 `#020a16`–`#123c5e`，物件自带的暗描边（`items.ts` 的 `rim`
+ * 用 `ink.dark`）落上去等于没画：轮廓一糊，玩家只能靠色块猜那是什么。
+ * 俯视的海面上本来就有一层月光，贴着浮体边缘的那一线是真实存在的光，
+ * 拿它当镶边既救得回轮廓，又不用把物件本体点亮成灯泡。
+ *
+ * `bias` 是掺进去的物件本色：全白的边会把二十来种剪影的色相线索抹平，
+ * 掺三成回来，边缘仍然亮，但木头的边偏暖、铁皮的边偏冷。
+ */
+export const MOONLIGHT = "#cfe3ff";
+
+export function moonRim(tint: string, bias = 0.32): string {
+  return mixHex(MOONLIGHT, tint, bias);
+}
+
 /** 相位 → 配色，相邻相位整段平滑过渡。 */
 export function paletteAt(phase01: number): SeaPalette {
   const t = clamp01(phase01 - Math.floor(phase01));

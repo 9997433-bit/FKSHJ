@@ -16,13 +16,16 @@
  *
  * 夜里只压暗、不点亮：唯一的光是小船船头那盏灯，
  * 用 `nightness` 控在很低的 alpha 上，放大了也不刺眼。
+ * 海盗船是个例外，但例外的也只是**反光**：近黑的船壳压进夜色后会和深水糊成
+ * 一块，所以水线上补一道 `moonRim` 的冷光，把轮廓从水里切出来。
+ * 船本身一分没亮——看得见的是水，不是船。
  *
  * 船上不许出现漂浮物的色号与画法（`world/junk.ts` 的 JUNK_STYLES）：
  * 那套颜色是「这东西能捞」的信号，搬到船身上，1× 缩放下玩家会去追自己的船。
  */
 
 import { RAFT_ORIGIN } from "../sim/rules";
-import { mixHex, nightness, paletteFor, swayAt, withAlpha, type SeaPalette } from "./ocean";
+import { mixHex, moonRim, nightness, paletteFor, swayAt, withAlpha, type SeaPalette } from "./ocean";
 
 /** 小船的形状与配色。玩法数值在 `entities/skiff.ts` 的 `SKIFF`，这里只有外观。 */
 export const SKIFF_ART = {
@@ -460,6 +463,16 @@ export function drawPirate(
       const phase = time * 4 + i * 1.1 + (side > 0 ? 0 : 0.5);
       drawOar(ctx, x, a.beam - 2, side, stroke, phase, night, p, "#6d4c2c", "#4a331d");
     }
+  }
+
+  // 夜里的水线反光：船壳本来就是近黑，压进夜色后与深水同一个亮度，
+  // 帆和旗还在，可船在哪儿、朝哪边开却读不出来了。沿船帮外面一圈补一道冷光，
+  // 画在船体**底下**，于是只有露在壳外的那半道看得见——是水亮，不是船亮。
+  if (night > 0.02) {
+    hullPath(ctx, a.bow + 1.5, a.stern - 1.3, a.beam + 1.4, a.sternBeam + 1.3);
+    ctx.strokeStyle = withAlpha(moonRim(a.hull), 0.42 * night);
+    ctx.lineWidth = 2.4;
+    ctx.stroke();
   }
 
   hullBody(
