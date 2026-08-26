@@ -1,23 +1,29 @@
 # 疯狂水世界 — 架构说明（Round 3 终审 / fable-arch）
 
-本文是引擎层契约与全局结构的权威描述，基于 Round 2 六路合并后的代码
-（`8601a51`）做 Round 3 终轮审计。玩法数值一律以 `src/data/constants.ts`
-为准（GAME_SPEC §9），本文不重复数值。
+本文是引擎层契约与全局结构的权威描述，基于 `e802d7b`（Round 2 六路
+合并 + Round 3 已收编的 opus-core / fable-sota / gpt-test / gpt-probe
+成果）做终轮审计。R3 的 opus-content 在本文提交时仍在途，其成果并入后
+应按 §8 复核一次。玩法数值一律以 `src/data/constants.ts` 为准
+（GAME_SPEC §9），本文不重复数值。
 
 **本轮门禁实测**（同一工作区，提交前复跑）：`npm test` 34/34、
 `npm run build` 通过、`npm run smoke` 34 文件 + 10 内容检查通过、
-`npm run bench` 三项预算全过（中位数 ≤ 2.5ms）、`npm run probe`
-确定性成立且长局 10,000 单位 `worldEmptyAhead: false`（前方仍有
-111 拾取 / 46 障碍，最远生成 z≈17,154）。
+`npm run bench` 三项预算全过（中位数 ≤ 2.5ms，与 BENCH.md 一致）、
+`npm run probe` 确定性成立（磁带两遍逐位一致）且长局 10,000 单位
+`worldEmptyAhead: false`（前方仍有 111 拾取 / 46 障碍，最远生成
+z≈17,154）——与 gpt-probe 刷新后的 BENCH.md 快照逐项吻合。
 
-## 1. 模块图与分层（R2 合并后现状）
+## 1. 模块图与分层（R3 收编后现状）
 
 ```
 第 0 层  纯数据 / 纯函数（无 DOM、可在 Node 直接单测）
-  data/constants.ts      数值表（唯一来源；CAMERA / FEEL 组建于 R2）
+  data/constants.ts      数值表（唯一来源；CAMERA / FEEL 已全组接线）
   game/collision.ts      circleHit / overlapDepth / nearMiss / sameLane
-  game/camera.ts         2.5D 投影 + 弯道 + 震动 ⚠ 模块级状态 cam、内联常量未迁
-  game/physics.ts        速度模型 + 弯道甩出（slip/fall）+ CHUTE 截面几何
+                         （sameLane 默认容差 ← FEEL.laneTol）
+  game/camera.ts         2.5D 投影 + 弯道 + 震动（← CAMERA，内联副本已删；
+                         怠速摇摆微系数属纯装饰有意留内）⚠ 模块级状态 cam
+  game/physics.ts        速度模型 + hitstop 记账 + 弯道甩出（slip/fall）
+                         + CHUTE 截面几何（← FEEL/SPEED/LANES）
                          ⚠ 仍 import camera.kickCamera（§7-3）
   entities/collectible.ts entities/obstacle.ts entities/booster.ts  实体工厂
   fx/particles.ts        粒子模拟/绘制（draw 需 ctx，step 纯函数）
@@ -32,28 +38,32 @@
 
 第 2 层  内容与呈现
   entities/player.ts  泳圈状态机：换道插值（中点翻面）/跳跃缓冲/刮墙/
-                      carve/弯道 slip/落水 fallen（← physics, camera.chuteBank）
+                      carve/弯道 slip/落水 fallen（← FEEL, physics,
+                      camera.chuteBank；内联副本已删）
   world/levels.ts     双 LCG 游标流式生成 + SPAWN_TABLES + seedWorld(dateDay^runId)
                       + themeIndex（取模循环）+ themeCycleAt（跨圈混色）
   world/track.ts      滑道网格/墙/导流箭头（← physics.CHUTE：画的边就是甩出的边）
   world/water.ts      天空/剪影/泡沫（泡沫经 project 投影，随滑道弯曲、不再切墙）
   ui/theme.ts         四主题色板 + 单圈混色 themeAt（钳制语义，见 §7-1）
-  ui/hud.ts           局内 HUD ⚠ 模块级动画状态跨局不重置（§8）
+  ui/hud.ts           局内 HUD + 甩出预警（offChute01 两级淡入、reduced-motion
+                      守卫）；模块级动画状态有 resetHud() + distance 回退自动清零
   ui/tube.ts          drawPlayerRing：高光/投影/涟漪/焊缝/无敌光环 + ringRoll
   fx/splash.ts        水花预设（← particles）
   ui/menus.ts         DOM overlay 菜单；面板打开期间绑定 M 静音键
 
 第 3 层  聚合
-  session.ts   「一局」聚合体：update（含 generateAhead 流式续生）+ draw
-               （themeCycleAt 上色、entityCullZ 裁剪、z 降序绘制）
-  main.ts      组合根：装配 Engine/Loop/Input/Sfx/Session，三处菜单接 audio 开关
+  session.ts   「一局」聚合体：update（takeHitstop 先扣冻结 → 世界推进 →
+               generateAhead 流式续生）+ draw（themeCycleAt 上色、
+               entityCullZ 裁剪、z 降序绘制、HUD 接 offChute01）
+  main.ts      组合根：装配 Engine/Loop/Input/Sfx/Session；startRun 里
+               resetHud()；三处菜单接 audio 静音开关
 ```
 
 分层规则：**只允许向下 import**；只有 `session.ts` / `main.ts` 允许同时
 触碰多个子系统。跨界例外仍是两条：`physics → camera`（kickCamera 副作用，
-坏味道，§7-3）与 `player → camera`（chuteBank 纯查询，无害）。R2 新增的
-`track → physics`（读 CHUTE 常量）是刻意的单一来源共享：模拟里让你落水的
-边缘和画出来的边缘必须是同两个数。
+最后一个坏味道，§7-3）与 `player → camera`（chuteBank 纯查询，无害）。
+`track → physics`（读 CHUTE 常量）是刻意的单一来源共享：模拟里让你落水
+的边缘和画出来的边缘必须是同两个数。
 
 ## 2. 场景状态机（GAME_SPEC §7）
 
@@ -84,9 +94,10 @@ rAF(t)
      └─ main tick(dt)
          ├─ playing：consumePause→pause；否则
          │    session.update(dt, steer, consumeJump())
-         │      ├─ player.step（换道插值 / 跳跃缓冲 / 无敌与刮墙冷却 / carve
+         │      ├─ time += dt；step = takeHitstop(motion, dt)  ← 受击顿帧在此吃 dt
+         │      ├─ player.step(step)（换道插值 / 跳跃缓冲 / 无敌与刮墙冷却 / carve
          │      │              / slip 甩出 / fallT 落水计时 → fallen 时 hp=0）
-         │      ├─ physics.stepSpeed(motion, dt) → dz = spd·dt·FEEL.worldScale
+         │      ├─ physics.stepSpeed(motion, step) → dz = spd·step·FEEL.worldScale
          │      ├─ generateAhead(world, distance + STREAM_AHEAD)  ← 流式续生
          │      ├─ collect / hazards / boosts（FEEL 窗口粗筛 + sameLane + circleHit；
          │      │   判定用 player.lane = round(laneCenter + slip)，中点翻面跟视觉）
@@ -94,15 +105,20 @@ rAF(t)
          ├─ paused：consumePause → 回 playing
          └─ session.draw(ctx)：themeCycleAt → sky → silhouettes → track(syncCamera)
                                 → foam(经 project) → z 降序实体+drawPlayerRing
-                                → 粒子 → HUD
+                                → 粒子 → HUD(含 offChute01 甩出预警)
 ```
 
+- **hitstop 语义**：`applyHit` 把 `FEEL.hitstopS` 记到 `Motion.hitstopLeft`，
+  session.update 每帧用 `takeHitstop` 把冻结量从 dt 里扣掉——世界（玩家、
+  速度、距离、连击计时）停一拍，但 `session.time` 仍按全额 dt 走，涟漪、
+  无敌闪烁等动画在冻结期间继续呼吸。loop.ts 不感知任何游戏时间缩放，
+  职责边界与 R2 设计一致（顿帧是会话层职责）。
 - 镜头状态在 `drawTrack → syncCamera(cameraZ, time)` 中推进。**绘制顺序即
   镜头时序**：foam 与实体都在 track 之后 project，用的是本帧镜头；任何新
   绘制层若排在 drawTrack 之前调用 project，会用上一帧镜头。
 - 两条死法（GAME_SPEC §4.4）汇成一个出口：落水把 `player.fallen` 置真并将
   hp 清零，session 只看 `hp ≤ 0`。⚠ player.ts 注释称「shell 读 fallen 定文案」，
-  实际 main/menus 尚未区分落水与撞瘪的结算文案——见 §8。
+  实际 main/menus 尚未区分落水与撞瘪的结算文案——见 §8-B。
 - 画布内只画游戏世界与 HUD；菜单是 DOM overlay。非 playing 场景下
   session.draw 仍每帧执行（标题背景即上一局定格），有意行为。
 
@@ -138,62 +154,64 @@ Round 3 全文复审，**无缺陷，零改动**。要点：
 分组：CANVAS/LOOP（引擎）、LANES/PLAYER/SPEED/SCORE（玩法 §4）、
 GEN（生成 §5，horizon×3 = 流式续生纵深）、CAMERA / FEEL、SAVE_KEY、ThemeId。
 
-接线状态（Round 3 复核）：
+接线状态（Round 3 终审）：**CAMERA 与 FEEL 全部字段均有真实消费方**——
+camera.ts（投影/弯道/震动）、physics.ts（速度模型/kick 力度/hitstop）、
+player.ts（操控）、collision.ts（sameLane 默认容差）、session.ts（判定
+窗口/entityCullZ/takeHitstop），模块内同值副本已删。抽查通过：
+`rg 'BEND_|RISE|SETTLE|_CARVE|JUMP_BUFFER' src/game src/entities`
+零命中；physics 仍持有的甩出滑道常量是下述有意例外。
 
-| 分组 | 状态 |
-| --- | --- |
-| CAMERA.entityCullZ | ✅ session.draw 消费 |
-| CAMERA 其余（投影/弯道/震动） | ❌ camera.ts 仍持同值内联副本，迁移未做 |
-| FEEL 会话判定（worldScale…ringInvulnS） | ✅ session.ts 消费 |
-| FEEL 速度模型 / 玩家操控 / 反馈强度 | ❌ physics.ts / player.ts 仍持同值内联副本 |
-| FEEL.hitstopS | ❌ 仍无消费方（接入点：session.update 的 hurt 分支对 dt 衰减） |
+**有意例外**：physics.ts 的 `CHUTE / SLIP_* / RIM_LANE / FALL_TIME /
+FALL_RECOVER`（R2 甩出滑道玩法）仍内联。规则：新字段必须与消费方同一
+提交入表，禁止在 constants 里堆无人消费的镜像值；这批常量等下一次真正
+迁移时一并入 FEEL（§8-A）。`SPEED.wallPenalty` 的过期「尚未接入」注释
+已修正（现由 player.scrapeWall → applyWallScrape 消费）。
 
-迁移规则不变：接入方必须**删除模块内副本**、与消费方同一提交完成；
-数值一致时不需要改测试。R2 的甩出滑道玩法在 physics.ts 又添了一批内联
-常量（`CHUTE`/`SLIP_*`/`RIM_LANE`/`FALL_TIME`/`FALL_RECOVER`）——按同一
-规则**刻意未预建镜像**，等真正迁移时一并入组，避免第二批无人消费的
-「待接入」字段。`SPEED.wallPenalty` 的「尚未接入」旧注释已修正
-（现由 player.scrapeWall → applyWallScrape 消费）。
+改会影响手感/计分的字段必须同步 `src/tests` 断言与 BENCH 快照。
 
-## 7. Round 2 遗留清单处置（对照 ROUND2_BRIEF）
+## 7. Round 2 遗留清单处置（对照 ROUND2_BRIEF，R3 终审）
 
-ROUND2_BRIEF「潜在边界风险」8 条的终审结论：
+「潜在边界风险」8 条的结论：
 
 1. **themeAt / themeCycleAt 双路径** —— ✅ 语义已对齐并文档化：
    `theme.themeAt` 是**单圈画笔**（0..一圈内上色 + 段间混色，末段钳制），
    `levels.themeCycleAt` 是**唯一对外入口**（距离折圈后交给 themeAt，再把
-   末段平滑混回热带港）。已抽查：全部绘制路径（session.draw 与 update 内
-   的粒子取色）只走 themeCycleAt，themeAt 直接调用仅存于 levels 内部与
-   测试。生成侧 `levels.themeIndex` 同为取模，视觉与生成不会漂移。
-2. **camera/physics/player 内联副本** —— ❌ 未迁（见 §6），R3 各代理均未
-   认领 opus-core 文件；作为合并后技术债滚动（§8-1）。
-3. **physics → kickCamera 耦合** —— ❌ 未拆。力度常量已入 FEEL 备用，
-   方案不变：physics 返回冲击强度、session 转发（§8-1）。
-4. **HUD 模块级动画状态跨局泄漏** —— ❌ 仍在（hud.ts 顶层
-   lastCombo/comboPopAt/lastHp/hpPulseAt），影响限于新局首个连击 pop 与
-   HP 脉冲基线（§8-2）。
+   末段平滑混回热带港）。已抽查：全部绘制路径只走 themeCycleAt，themeAt
+   直接调用仅存于 levels 内部与测试；生成侧 `levels.themeIndex` 同为取模，
+   视觉与生成不会漂移。
+2. **camera/physics/player 内联副本** —— ✅ R3 opus-core 完成迁移，
+   副本已删（见 §6），collision.sameLane 默认容差也已同源。
+3. **physics → kickCamera 耦合** —— ⚠ 半解：力度常量已走 FEEL，但
+   import 仍在，第 0 层纯函数仍带渲染副作用。拆法不变：physics 返回
+   冲击强度（或写入 Motion 事件字段），session 统一转发（§8-A）。
+4. **HUD 模块级动画状态跨局泄漏** —— ✅ R3 fable-sota 完成：
+   `resetHud()` 在 startRun 显式调用，drawHud 内 distance 回退自动清零
+   兜底，两者幂等。
 5. **实体数组只增不删** —— ❌ 仍只增。session 的三个循环对
    taken/hit/used 与窗口外实体是 O(1) 跳过，R2 实测 10 万距离仍便宜，
-   不影响可玩性；回收留作卫生项（§8-2）。
-6. **探针磁带在新种子下早死** —— ✅ 已确认为既成事实：确定性磁带现在
-   1198m 处 HP=0 结束（over=true, score 587.644），**确定性本身不受影响**
-   （两遍逐位一致）；长局探针关碰撞照常跑满 10,000。BENCH.md 快照仍是
-   旧世界（score 545.74 / hp 3 / worldEmptyAhead true），待刷新（§8-3）。
-7. **真实画布 60fps / GPU 填充未测** —— ❌ 仍缺浏览器实测（§8-3）。
-8. **FEEL.hitstopS 无消费方** —— ❌ 仍无（§6、§8-2）。
+   不影响可玩性；回收留作卫生项（§8-B）。
+6. **探针磁带在新种子下早死** —— ✅ 已确认并入档：确定性磁带在 1198m
+   处 HP=0 结束（over=true, score 587.644），**确定性本身不受影响**
+   （两遍逐位一致）；长局探针关碰撞照常跑满 10,000。BENCH.md 已由
+   gpt-probe 刷新且注明 `seedWorld(runId, 0)` 钳日基准，快照与本轮
+   复跑逐项一致。
+7. **真实画布 60fps / GPU 填充未测** —— ❌ 仍缺浏览器实测（§8-C）。
+8. **FEEL.hitstopS 无消费方** —— ✅ R3 完成：applyHit 记账
+   `Motion.hitstopLeft`，session.update 经 takeHitstop 消费（§3）。
 
 「SOTA 验收差距（Round 3 冲刺）」清单终审：
 
-- [ ] camera/physics/player 改读 CAMERA/FEEL 并删内联副本（未做，§8-1）
-- [ ] 受击 hitstop + 加速速度线（未做，§8-2）
-- [ ] HUD `offChute01` 预警、跨局重置（未做；player.offChute01 数据源就绪，§8-2）
-- [ ] 远离玩家的实体回收（未做，§8-2）
+- [x] camera/physics/player 改读 CAMERA/FEEL 并删内联副本（R3 opus-core）
+- [~] 受击 hitstop ✅（R3 opus-core）；加速速度线仍缺（§8-B）
+- [x] HUD `offChute01` 预警、跨局重置（R3 fable-sota：两级淡入预警胶囊
+      + 侧缘 danger 雾 + reduced-motion 守卫 + resetHud 双保险）
+- [ ] 远离玩家的实体回收（未做，§8-B）
 - [x] themeAt 与循环语义对齐或文档标明（本轮完成，见上 §7-1）
-- [x] README / ARCHITECTURE 与现网行为对齐（本轮完成：README 重写为流式
-      世界/落水/静音 M/四主题循环；本文即架构终审。SOTA_BAR 不在本轮写集，
-      其 §2 评分与 §4 清单仍停在 R2 视角，§8-3 列为收尾项）
-- [ ] 刷新 BENCH.md 快照（未做，数据已备齐：新磁带快照 + 长局不再空，§8-3）
-- [ ] 浏览器里走一遍标题→再来一局（本轮环境无浏览器，未走，§8-3）
+- [x] README / SOTA_BAR / ARCHITECTURE 与现网行为对齐（README 重写为
+      流式世界/落水/静音 M/四主题循环 + 本文终审 = fable-arch 本轮；
+      SOTA_BAR 已由 R3 fable-sota 重盘）
+- [x] 刷新 BENCH.md 快照（R3 gpt-probe；本轮复跑逐项吻合）
+- [ ] 浏览器里走一遍标题→再来一局（本轮环境无浏览器，未走，§8-C）
 
 R2 相对 R1 的八项演进（流式世界、主题循环、落水失败、换道中点翻面、
 泳圈质感、BGM+静音、CAMERA/FEEL 建组、loop 异常隔离）本轮全部复核确认
@@ -203,29 +221,26 @@ R2 相对 R1 的八项演进（流式世界、主题循环、落水失败、换�
 
 **A. 架构收敛（不改行为的技术债，宜单独一批）**
 
-1. camera.ts / physics.ts / player.ts 改读 CAMERA/FEEL 并删内联副本；
-   同一批把 physics 的 kickCamera 副作用改为返回冲击强度、由 session 转发；
-   physics 的 CHUTE/SLIP/FALL 常量一并入 FEEL。验收：
-   `rg '0\.22|1\.15|BEND_|RISE|FALL' src/game` 无内联副本，
-   physics.ts 不再 import camera。
+1. 拆掉最后的跨层副作用：physics 的 applyHit/applyBoost/applyWallScrape
+   改为返回冲击强度（或写入 Motion 事件字段），session 转发给
+   camera.kickCamera；同一批把 CHUTE/SLIP_*/RIM_LANE/FALL_TIME/
+   FALL_RECOVER 迁入 FEEL 并删 physics 内联。验收：physics.ts 不再
+   import camera；`rg 'kickCamera' src/game/physics.ts` 零命中。
 
 **B. 玩法/呈现小缺口（各自一小时级，互不依赖）**
 
-2. - 受击 hitstop：session.update 顶部按 FEEL.hitstopS 衰减 dt（勿动 loop）；
-   - HUD 接 `player.offChute01` 落水预警，并给 hud.ts 加跨局重置入口；
+2. - 加速带速度线（线型粒子即可，别上真模糊）；
+   - 实体回收（distance 远落后的 taken/hit/used 条目定期 splice）；
    - 结算文案区分落水（`player.fallen`）与撞瘪，或删掉 player.ts 里
      「shell 读 fallen」的过期注释；
-   - 加速速度线（线型粒子即可）；
-   - 实体回收（distance 远落后的 taken/hit/used 条目定期 splice）；
    - menus 帮助文案「左右半屏」与 input.ts 实际三分屏（0.33/0.67）对齐。
 
-**C. 验收收尾（文档与实测）**
+**C. 验收收尾（合并前）**
 
-3. - gpt-probe 刷新 BENCH.md（新磁带快照 587.644/1198m/hp0 + 长局
-     worldEmptyAhead false），可顺带换一条能跑满的磁带；
-   - fable-sota 复核 SOTA_BAR §2 评分与 §4 清单（BGM/泡沫透视/泳圈已落地）；
+3. - R3 opus-content 在途成果并入后，按本文 §1/§3 复核一次模块边界
+     （新增绘制层注意「绘制顺序即镜头时序」）；
    - 浏览器实测：1080p 帧时 ≥55fps、标题→暂停→结算→再来一局全键盘闭环、
-     四主题跨圈渐变无硬切。
+     四主题跨圈渐变无硬切、受击顿帧与甩出预警可感知。
 
 **门禁（合并前必须全绿，本轮已验证当前基线全绿）**
 

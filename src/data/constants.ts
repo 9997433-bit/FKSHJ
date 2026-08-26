@@ -125,38 +125,37 @@ export const GEN = {
 /* ========================================================================
  * 镜头 / 2.5D 投影（GAME_SPEC §6 视觉底线）
  *
- * 现状（Round 3 复核）：src/game/camera.ts 仍以同值内联常量工作
- * （opus-core 所有权）。本组是迁移目标：camera.ts 改读本组时数值
- * 完全一致，接入是行为无损的；接入后必须删除模块内副本，避免双份真相。
- * far 裁剪没有单独字段——继续用 GEN.horizon，保持单一来源。
- * session.draw 已直接消费 entityCullZ。
+ * 接线状态（Round 3 完成）：src/game/camera.ts 全组消费，模块内同值
+ * 副本已删；session.draw 另消费 entityCullZ。far 裁剪没有单独字段——
+ * 继续用 GEN.horizon，保持单一来源。syncCamera 的怠速摇摆微系数属
+ * 每帧纯装饰，有意留在模块内，不值得进数值表。
  * ===================================================================== */
 export const CAMERA = {
   /** 消失点高度 = 画布高 × 0.18（§6：消失点在画布上方 18%） */
   horizonFrac: 0.18,
-  /** 近裁剪深度（世界单位）；再近的物体按此深度投影（camera.ts NEAR） */
+  /** 近裁剪深度（世界单位）；再近的物体按此深度投影 */
   near: 40,
-  /** 最远处的投影缩放（camera.ts project 的 0.22） */
+  /** 最远处的投影缩放 */
   scaleMin: 0.22,
   /** 由远及近附加的缩放跨度；最近处 s = scaleMin + scaleSpan */
   scaleSpan: 1.15,
-  /** 屏幕 y 随纵深的非线性指数，>1 时近处行进更快（camera.ts 的 pow 1.15） */
+  /** 屏幕 y 随纵深的非线性指数，>1 时近处行进更快 */
   depthCurve: 1.15,
-  /** 最近平面距画布底边的留边（px），给玩家/水花留出画面（camera.ts 的 70） */
+  /** 最近平面距画布底边的留边（px），给玩家/水花留出画面 */
   bottomPad: 70,
-  /** 快弯振幅（世界单位，camera.ts BEND_FAST） */
+  /** 快弯振幅（世界单位） */
   bendFastAmp: 26,
-  /** 慢弯振幅（camera.ts BEND_SLOW） */
+  /** 慢弯振幅（世界单位） */
   bendSlowAmp: 12,
-  /** 快弯角频率（rad/世界单位，camera.ts BEND_FAST_K） */
+  /** 快弯角频率（rad/世界单位） */
   bendFastFreq: 0.004,
-  /** 慢弯角频率（camera.ts BEND_SLOW_K） */
+  /** 慢弯角频率（rad/世界单位） */
   bendSlowFreq: 0.0011,
-  /** 慢弯相位（camera.ts BEND_SLOW_PHASE） */
+  /** 慢弯相位（rad） */
   bendSlowPhase: 1.7,
   /** 读作「满倾斜过弯」的弯道斜率，chuteBank 用它归一到 -1..1 */
   bankFull: 0.12,
-  /** 撞击震动每秒衰减量（camera.ts SHAKE_DECAY） */
+  /** 撞击震动每秒衰减量 */
   shakeDecay: 3.4,
   /** 实体绘制远裁剪（世界单位）；比 GEN.horizon 近，远处实体小于 1px 无意义 */
   entityCullZ: 1800,
@@ -165,50 +164,51 @@ export const CAMERA = {
 /* ========================================================================
  * 手感 / 判定（速度趋近、carve 掉速、判定窗口、反馈强度）
  *
- * 分三段（Round 3 复核，接线状态见各字段注释）：
- * 1) 速度模型 —— src/game/physics.ts 同值内联（opus-core），迁移目标；
- * 2) 玩家操控 —— src/entities/player.ts 同值内联（opus-core），迁移目标；
- * 3) 会话判定 —— src/session.ts 已接入本组（Round 2 完成）。
- * 迁移规则同 CAMERA：数值一致、行为无损、接入后删内联副本，且必须
- * 与消费方同一提交完成，禁止先在这里堆无人消费的镜像值。
- * Round 2 的甩出滑道玩法又在 physics.ts 添了一批内联常量
- * （CHUTE / SLIP_* / RIM_LANE / FALL_TIME / FALL_RECOVER），按同一规则
- * 留在持有者手里，等迁移时一并入组——本表刻意不预建镜像。
+ * 接线状态（Round 3 全部完成）：
+ * 1) 速度模型 —— src/game/physics.ts 消费；
+ * 2) 玩家操控 —— src/entities/player.ts 消费（collision.sameLane 的
+ *    默认容差也读 laneTol，与会话判定同源）；
+ * 3) 会话判定 —— src/session.ts 消费（Round 2 接线）。
+ * 单一来源规则不变：谁消费谁只读这里，禁止模块内再留同值副本；
+ * 新字段必须与消费方同一提交入表，禁止堆无人消费的镜像值。
+ * Round 2 的甩出滑道玩法在 physics.ts 还有一批内联常量
+ * （CHUTE / SLIP_* / RIM_LANE / FALL_TIME / FALL_RECOVER），按上述规则
+ * 留在持有者手里，等真正迁移时一并入组——本表刻意不预建镜像。
  * ===================================================================== */
 export const FEEL = {
   /* —— 1) 速度模型（physics.ts）—— */
-  /** 速度硬下限（世界单位/秒）；撞击后也不会慢于此（physics.ts MIN_SPEED） */
+  /** 速度硬下限（世界单位/秒）；撞击后也不会慢于此 */
   minSpeed: 90,
-  /** 低于巡航时的每秒趋近率：爬升要积极（physics.ts RISE） */
+  /** 低于巡航时的每秒趋近率：爬升要积极 */
   approachRise: 0.95,
-  /** 高于巡航时的每秒趋近率：滑落要慵懒（physics.ts FALL） */
+  /** 高于巡航时的每秒趋近率：滑落要慵懒 */
   approachFall: 0.62,
-  /** 原始整定趋近率；坡度-水阻平衡点 slopeLift 由它折算（physics.ts SETTLE_RATE） */
+  /** 原始整定趋近率；坡度-水阻平衡点 slopeLift 由它折算 */
   settleRate: 0.35,
-  /** 加速包络起势时长（秒，physics.ts BOOST_ATTACK） */
+  /** 加速包络起势时长（秒） */
   boostAttackS: 0.12,
-  /** 加速包络泄力时长（秒，physics.ts BOOST_RELEASE） */
+  /** 加速包络泄力时长（秒） */
   boostReleaseS: 0.3,
-  /** 满 carve 时从巡航速度上削掉的量（physics.ts BANK_LOSS） */
+  /** 满 carve 时从巡航速度上削掉的量 */
   bankLoss: 70,
-  /** carve 期间额外的趋近率加成 = 更快贴向掉速后的巡航（physics.ts BANK_SCRUB） */
+  /** carve 期间额外的趋近率加成 = 更快贴向掉速后的巡航 */
   bankScrub: 0.55,
   /* —— 2) 玩家操控（player.ts）—— */
-  /** 跳跃预输入窗口（秒）：冷却结束前按下仍会起跳（player.ts JUMP_BUFFER） */
+  /** 跳跃预输入窗口（秒）：冷却结束前按下仍会起跳 */
   jumpBufferS: 0.13,
-  /** 换道贡献的 carve 权重（player.ts SWITCH_CARVE） */
+  /** 换道贡献的 carve 权重 */
   switchCarve: 0.8,
-  /** 滑道自身弯度贡献的 carve 权重（player.ts CHUTE_CARVE） */
+  /** 滑道自身弯度贡献的 carve 权重 */
   chuteCarve: 0.45,
-  /** 滞空时 carve 折减：空中没有水可刮（player.ts AIR_CARVE） */
+  /** 滞空时 carve 折减：空中没有水可刮 */
   airCarve: 0.25,
-  /** 小跳最大抬升（屏幕 px @ 单位缩放，player.ts DEFAULT_LIFT） */
+  /** 小跳最大抬升（屏幕 px @ 单位缩放） */
   hopLiftPx: 34,
-  /** 顶着边墙持续转向时的刮墙掉速冷却（秒，player.ts WALL_SCRAPE_CD） */
+  /** 顶着边墙持续转向时的刮墙掉速冷却（秒） */
   wallScrapeCdS: 0.45,
-  /** 受击后无敌时长（秒，player.ts hurt() 的 0.85） */
+  /** 受击后无敌时长（秒） */
   hurtInvulnS: 0.85,
-  /* —— 3) 会话判定（session.ts，已接入）—— */
+  /* —— 3) 会话判定（session.ts）—— */
   /** 世界推进比例：speed × dt × worldScale = Δdistance（世界单位） */
   worldScale: 0.2,
   /** 玩家泳圈锚定深度 z（世界单位）；碰撞判定与绘制共用，漂移会导致
@@ -231,15 +231,15 @@ export const FEEL = {
   vortexSlowMul: 0.7,
   /** 水环短暂无敌时长（秒，§4.3 Ring） */
   ringInvulnS: 0.6,
-  /* —— 4) 反馈强度（physics.ts 的 kickCamera 力度；待整体接入）—— */
-  /** 撞障碍的镜头冲击力（physics.ts applyHit 的 0.9） */
+  /* —— 4) 反馈强度（physics.ts 的 kickCamera 力度，已接线）—— */
+  /** 撞障碍的镜头冲击力（applyHit） */
   hitKick: 0.9,
-  /** 刮墙的镜头冲击力（physics.ts applyWallScrape 的 0.35） */
+  /** 刮墙的镜头冲击力（applyWallScrape） */
   wallKick: 0.35,
-  /** 吃加速带的镜头冲击力（physics.ts applyBoost 的 0.22） */
+  /** 吃加速带的镜头冲击力（applyBoost） */
   boostKick: 0.22,
-  /** 受击顿帧时长（秒）。ROUND1_BRIEF 缺陷 8 / SOTA_BAR P0-4 规划值
-   *  （40–60ms 取中），尚无消费方；接入点在 session.update 的 hurt 分支 */
+  /** 受击顿帧时长（秒，40–60ms 取中）。applyHit 记账到 Motion.hitstopLeft，
+   *  session.update 每帧经 takeHitstop 先扣掉冻结量再推进世界（R3 接线） */
   hitstopS: 0.05,
 } as const;
 
