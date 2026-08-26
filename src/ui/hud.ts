@@ -1,7 +1,7 @@
 import { CANVAS } from "../data/constants";
 
 /**
- * HUD 绘制 API（fable-sota，Round 2）。
+ * HUD 绘制 API（fable-sota，Round 3）。
  *
  * 设计基调：手游浮岛基建的轻松感——末世但不丧。圆角卡片、暖阳黄点缀、
  * 资源 +1 弹跳、换天徽章闪光；绝不用血红大警报吓玩家（危险态只做柔和脉冲）。
@@ -10,8 +10,9 @@ import { CANVAS } from "../data/constants";
  * - 所有函数工作在 CANVAS.w × CANVAS.h 逻辑坐标系（Engine 已抹平 DPR）。
  * - session 每帧在世界绘制之后调用 drawHud(ctx, info)；info 里除 day 外全部
  *   可选，缺哪块就不画哪块，父调度器可以分阶段接线。
- *   Round 2 新增 storm01 / starve01 / hintDanger 三个可选预警字段：
- *   session 还没传时 HUD 与 Round 1 完全一致，不崩不闪。
+ *   Round 2 新增 storm01 / starve01 / hintDanger 三个可选预警字段，
+ *   Round 3 新增 placeHint（放置被拒短句）：session 还没传时行为与上一轮
+ *   完全一致，不崩不闪。
  * - 布局红线：资源/生存条贴左上，天数贴右上，建造栏贴底部中央；
  *   预警层贴顶缘（y < 96，浮岛网格上沿之上）——
  *   画面中央（浮岛与小船的舞台）永不遮挡。
@@ -74,6 +75,12 @@ export type HudInfo = {
    * 画在顶部中央珊瑚胶囊（风暴条下方，若两者都在）；缺省不画。
    */
   hintDanger?: string;
+  /**
+   * 放置被拒短句（如「得贴着木筏放」，现成文案见 sim/rules 的 placeHint）。
+   * 传入时建造栏上方提示行换成这句珊瑚色短句（出现瞬间轻弹一下）；
+   * 缺省不画、提示行行为不变。拒绝后传几秒再撤由 session 掌握。
+   */
+  placeHint?: string;
 };
 
 /** HUD 专用色板：暖阳 + 潟湖青，危险色也偏珊瑚而非血红（末世但不丧）。 */
@@ -112,6 +119,10 @@ let lastCounts: Partial<Record<ResourceKind, number>> = {};
 let popAt: Partial<Record<ResourceKind, number>> = {};
 let lastDay = 0;
 let dayPopAt = -Infinity;
+let lastDangerHint = "";
+let dangerHintAt = -Infinity;
+let lastPlaceHint = "";
+let placeHintAt = -Infinity;
 
 /** 清空 HUD 动画状态。新一局开始时调用，避免上一局尾帧的弹跳串进新局。幂等。 */
 export function resetHud(): void {
@@ -119,10 +130,14 @@ export function resetHud(): void {
   popAt = {};
   lastDay = 0;
   dayPopAt = -Infinity;
+  lastDangerHint = "";
+  dangerHintAt = -Infinity;
+  lastPlaceHint = "";
+  placeHintAt = -Infinity;
 }
 
 /**
- * 变化侦测：资源增加 / 换天时记录弹跳时间戳。
+ * 变化侦测：资源增加 / 换天时记录弹跳时间戳，危险/放置提示文案变化时记录入场时间戳。
  * 只在值变化时写状态，同一帧内被多个绘制函数重复调用是无害的。
  * day 回退（一局内单调递增）视为新开一局，自动清一次——未接 resetHud 也不串场。
  */
@@ -130,6 +145,12 @@ function syncHudState(info: HudInfo, now: number): void {
   if (info.day < lastDay) resetHud();
   if (info.day > lastDay && lastDay > 0) dayPopAt = now;
   lastDay = info.day;
+  const danger = info.hintDanger ?? "";
+  if (danger && danger !== lastDangerHint) dangerHintAt = now;
+  lastDangerHint = danger;
+  const denial = info.placeHint ?? "";
+  if (denial && denial !== lastPlaceHint) placeHintAt = now;
+  lastPlaceHint = denial;
   if (!info.resources) return;
   for (const kind of RESOURCE_ORDER) {
     const v = info.resources[kind];
@@ -168,6 +189,7 @@ export function drawHud(ctx: CanvasRenderingContext2D, info: HudInfo): void {
  */
 export function drawAlerts(ctx: CanvasRenderingContext2D, info: HudInfo): void {
   const now = info.time ?? performance.now() / 1000;
+  syncHudState(info, now);
   const storm = Math.max(0, Math.min(1, info.storm01 ?? 0));
   const hint = info.hintDanger;
   if (storm <= 0 && !hint) return;
@@ -219,9 +241,11 @@ export function drawAlerts(ctx: CanvasRenderingContext2D, info: HudInfo): void {
     const w = 40 + estTextWidth(hint, 13);
     const h = 28;
     const x0 = (CANVAS.w - w) / 2;
-    ctx.globalAlpha = REDUCED_MOTION ? 1 : 0.85 + 0.15 * Math.sin(now * 3);
+    // 出现瞬间 0.25s 淡入；之后胶囊本体恒定，只有珊瑚点轻呼吸——布告不该抖
+    const fadeIn = REDUCED_MOTION ? 1 : Math.max(0, Math.min(1, (now - dangerHintAt) / 0.25));
+    ctx.globalAlpha = fadeIn;
     panel(ctx, x0, capY, w, h);
-    ctx.fillStyle = HUD_COLORS.danger;
+    ctx.fillStyle = withAlpha(HUD_COLORS.danger, REDUCED_MOTION ? 1 : 0.7 + 0.3 * Math.sin(now * 3));
     ctx.beginPath();
     ctx.arc(x0 + 15, capY + h / 2, 4, 0, Math.PI * 2);
     ctx.fill();
@@ -405,7 +429,8 @@ export function drawDayBadge(ctx: CanvasRenderingContext2D, info: HudInfo): void
 
 /**
  * 底部中央：建造快捷栏（1–5 键位 + 图标 + 名称 + 花费；选中抬升亮边，
- * 造不起半透明）+ 上方一行提示；左下角通用操作提示。
+ * 造不起半透明）+ 上方一行提示（placeHint 传入时优先显示放置被拒短句）；
+ * 左下角通用操作提示。
  */
 export function drawBuildBar(ctx: CanvasRenderingContext2D, info: HudInfo): void {
   const now = info.time ?? performance.now() / 1000;
@@ -431,17 +456,30 @@ export function drawBuildBar(ctx: CanvasRenderingContext2D, info: HudInfo): void
   const x0 = (CANVAS.w - total) / 2;
   const y0 = CANVAS.h - 16 - slotH;
 
-  // 栏上方提示行：全未选中时换成「先按 1–5」引导（潟湖青、轻呼吸），否则用调用方文案
-  const noneSelected = slots.every((s) => !s.selected);
-  const hint = noneSelected
-    ? "先按 1–5 挑个建筑 · 点海面放置"
-    : (info.build?.hint ?? "按 1–5 选建筑 · 点海面放置");
-  ctx.fillStyle = noneSelected
-    ? withAlpha(HUD_COLORS.accent, REDUCED_MOTION ? 0.9 : 0.7 + 0.25 * Math.sin(now * 2))
-    : withAlpha(HUD_COLORS.ink, 0.55);
-  ctx.font = "12px 'Trebuchet MS', 'PingFang SC', 'Microsoft YaHei', sans-serif";
-  ctx.textAlign = "center";
-  ctx.fillText(hint, CANVAS.w / 2, y0 - 10);
+  // 栏上方提示行，三级优先：放置被拒短句（珊瑚、出现瞬间轻弹）>
+  // 全未选中的「先按 1–5」引导（潟湖青、轻呼吸）> 调用方文案
+  if (info.placeHint) {
+    ctx.save();
+    const scale = popScale(placeHintAt, now);
+    ctx.translate(CANVAS.w / 2, y0 - 10);
+    ctx.scale(scale, scale);
+    ctx.fillStyle = HUD_COLORS.danger;
+    ctx.font = "700 12px 'Trebuchet MS', 'PingFang SC', 'Microsoft YaHei', sans-serif";
+    ctx.textAlign = "center";
+    ctx.fillText(info.placeHint, 0, 0);
+    ctx.restore();
+  } else {
+    const noneSelected = slots.every((s) => !s.selected);
+    const hint = noneSelected
+      ? "先按 1–5 挑个建筑 · 点海面放置"
+      : (info.build?.hint ?? "按 1–5 选建筑 · 点海面放置");
+    ctx.fillStyle = noneSelected
+      ? withAlpha(HUD_COLORS.accent, REDUCED_MOTION ? 0.9 : 0.7 + 0.25 * Math.sin(now * 2))
+      : withAlpha(HUD_COLORS.ink, 0.55);
+    ctx.font = "12px 'Trebuchet MS', 'PingFang SC', 'Microsoft YaHei', sans-serif";
+    ctx.textAlign = "center";
+    ctx.fillText(hint, CANVAS.w / 2, y0 - 10);
+  }
 
   slots.forEach((slot, i) => {
     const affordable = slot.affordable !== false;
