@@ -1,8 +1,9 @@
-import { bestDay, commitRun } from "./data/save";
+import { itemName, isItemId } from "./data/catalog";
+import { bestDay, commitRun, markSeen } from "./data/save";
 import { sfx } from "./fx/audio";
 import { MAX_PARTICLES, type Particle, capParticles, drawParticles, stepParticles } from "./fx/particles";
 import { type Ripple, drawRipples, stepRipples } from "./fx/ripple";
-import { boatWake, buildChips, scoopSplash } from "./fx/splash";
+import { boatWake, buildChips, salvageSplash } from "./fx/splash";
 import {
   BUILDINGS,
   HOTBAR,
@@ -16,6 +17,7 @@ import {
   allCells,
   canAfford,
   canPlace,
+  countBuilding,
   createEconomy,
   createRaft,
   createResources,
@@ -36,7 +38,19 @@ import {
   updateThreats,
   worldToTile,
 } from "./sim";
+import {
+  canComplete,
+  complete,
+  completeHint,
+  costLabel as requestCost,
+  createBoard,
+  readyRequests,
+  updateBoard,
+  type BoardState,
+} from "./sim/expand";
+import { DEFAULT_SLOTS, addItem, createInventory, type Inventory } from "./sim/inventory";
 import { stormWarnRatio } from "./sim/threats";
+import { createStory, updateStory, type StoryState } from "./story";
 import type { EndReason } from "./ui/menus";
 import { drawHud, resetHud, type BuildSlot } from "./ui/hud";
 import { drawJunkField, drawJunkHighlight, makeJunkField, reapJunk, type JunkField, updateJunk } from "./world/junk";
@@ -71,9 +85,14 @@ export class Session {
   threats: ThreatState;
   skiff: Skiff;
   junk: JunkField;
+  bag: Inventory;
+  story: StoryState;
+  board: BoardState;
   selected: PlaceableId | null = null;
   rng: () => number;
   private denied: { text: string; at: number } | null = null;
+  private loot: { name: string; qty: number; at: number } | null = null;
+  private seenThisRun = new Set<string>();
 
   particles: Particle[] = [];
   ripples: Ripple[] = [];
@@ -89,6 +108,9 @@ export class Session {
     this.threats = createThreats();
     this.skiff = createSkiff();
     this.junk = makeJunkField(this.seed, 8);
+    this.bag = createInventory({}, { maxSlots: DEFAULT_SLOTS });
+    this.story = createStory();
+    this.board = createBoard();
     resetHud();
   }
 
@@ -132,7 +154,7 @@ export class Session {
   }
 
   result() {
-    const saved = commitRun(this.day, this.salvaged);
+    const saved = commitRun(this.day, this.salvaged, this.seenThisRun);
     return {
       days: this.day,
       built: this.built,
@@ -173,6 +195,21 @@ export class Session {
     updateJunk(this.junk, dt);
     const eco = updateEconomy(this.economy, this.raft, this.res, dt);
     const events = updateThreats(this.threats, this.raft, this.res, dt, this.rng);
+    // 请求板必须接在威胁之后：贴单才消耗 rng，不贴单一次都不抽，
+    // 探针 300 tick（5s）早于 firstS=12，所以磁带哈希不变。
+    const boardEvents = updateBoard(this.board, this.res, dt, this.rng);
+    this.story = updateStory(this.story, {
+      day: this.day,
+      buildings: {
+        floor: countBuilding(this.raft, "floor"),
+        collector: countBuilding(this.raft, "collector"),
+        purifier: countBuilding(this.raft, "purifier"),
+        fish: countBuilding(this.raft, "fish"),
+        turret: countBuilding(this.raft, "turret"),
+        core: countBuilding(this.raft, "core"),
+      },
+      elapsed: this.time,
+    });
 
     if (!this.headless) {
       sfx.setStorm(stormWarnRatio(this.threats));
@@ -181,6 +218,11 @@ export class Session {
         if (ev.type === "storm-strike" || ev.type === "core-hit" || ev.type === "cell-lost") sfx.hit();
         if (ev.type === "turret-fire") sfx.shoot();
         if (ev.type === "pirate-killed") sfx.scoop();
+      }
+      for (const ev of boardEvents) {
+        if (ev.type === "request-posted") sfx.warn();
+        if (ev.type === "request-done") sfx.scoop();
+        if (ev.type === "request-expired") sfx.deny();
       }
       stepParticles(this.particles, dt);
       capParticles(this.particles, MAX_PARTICLES);
@@ -200,10 +242,37 @@ export class Session {
     if (!haul) return false;
     gain(this.res, haul.kind, haul.amount);
     this.salvaged += 1;
+    if (isItemId(haul.kind)) {
+      addItem(this.bag, haul.kind, haul.amount, { partial: true });
+      this.seenThisRun.add(haul.kind);
+      markSeen(haul.kind);
+      this.loot = { name: itemName(haul.kind), qty: haul.amount, at: this.time };
+    }
     if (!this.headless) {
-      scoopSplash(this.particles, haul.junk.x, haul.junk.y, "#7ad7ff");
+      salvageSplash(this.particles, haul.junk.x, haul.junk.y, haul.kind);
       sfx.scoop();
     }
+    return true;
+  }
+
+  /** 交付板上第一条交得起的条子；没有可交的就提示缺料。 */
+  tryDeliver(): boolean {
+    if (this.over) return false;
+    const ready = readyRequests(this.board, this.res);
+    const target = ready[0] ?? this.board.open[0];
+    if (!target) {
+      this.denied = { text: "板上还没条子", at: this.time };
+      if (!this.headless) sfx.deny();
+      return false;
+    }
+    const out = complete(this.board, this.res, target.id);
+    if (!out.ok) {
+      this.denied = { text: completeHint(out.reason), at: this.time };
+      if (!this.headless) sfx.deny();
+      return false;
+    }
+    this.denied = null;
+    if (!this.headless) sfx.scoop();
     return true;
   }
 
@@ -293,15 +362,34 @@ export class Session {
       water01: this.res.water / RESOURCE_CAP.water,
       food01: this.res.food / RESOURCE_CAP.food,
       islanders: { fed: this.economy.starving ? 0 : crew, total: crew },
-      build: { slots, hint: "WASD 开船 · 空格捞 · 1–5 建造" },
+      build: { slots, hint: "WASD 开船 · 空格捞 · 1–5 建造 · Q 交付岛民条子" },
       time: this.time,
       storm01,
       starve01: this.economy.starve / STARVE.limitS,
       hintDanger: this.threats.pirates.length > 0 ? "海盗盯上木筏了" : undefined,
       placeHint:
         this.denied && this.time - this.denied.at < 2.5 ? this.denied.text : undefined,
+      storyBeat: this.story.beat
+        ? { title: this.story.beat.title, body: this.story.beat.body }
+        : undefined,
+      quest: questInfo(this.board, this.res),
+      lootToast:
+        this.loot && this.time - this.loot.at < 2.2
+          ? { name: this.loot.name, qty: this.loot.qty }
+          : undefined,
     });
   }
+}
+
+function questInfo(board: BoardState, res: Resources): { name: string; progress: string } | undefined {
+  const req = board.open[0];
+  if (!req) return undefined;
+  const ready = canComplete(board, res, req.id);
+  const clock = `${Math.max(0, Math.ceil(req.ttl))}s`;
+  return {
+    name: `${req.who} · ${req.title}`,
+    progress: ready ? `${requestCost(req.want)} · 按 Q 交付` : `${requestCost(req.want)} · ${clock}`,
+  };
 }
 
 function costLabel(cost: Partial<Record<string, number>>): string {
