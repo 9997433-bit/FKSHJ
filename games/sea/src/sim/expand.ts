@@ -64,9 +64,12 @@ export const BOARD = {
   urgentAt: 0.3,
 } as const;
 
-/** 首张条子是否晚于探针窗口（真 = 前 5s 不贴单也不抽 rng） */
+/**
+ * 首张条子是否晚于探针窗口（真 = 前 5s 不贴单也不抽 rng）。
+ * 两头都查：常量表和 createBoard() 起手的 postT——只改其中一个也会被拦下。
+ */
 export function quietThroughProbe(): boolean {
-  return BOARD.firstS > PROBE_QUIET_S;
+  return BOARD.firstS > PROBE_QUIET_S && createBoard().postT > PROBE_QUIET_S;
 }
 
 /** 一种材料的需求区间（含端点，实际数量再按难度档加码） */
@@ -817,4 +820,74 @@ export function recentDiary(state: BoardState, n = 3): DiaryEntry[] {
 /** 现在就交得起的条子，HUD 拿去高亮「可交」 */
 export function readyRequests(state: BoardState, res: Resources): IslanderRequest[] {
   return state.open.filter((r) => canComplete(state, res, r.id));
+}
+
+// ── 完成庆祝 ────────────────────────────────────────────────────────
+
+/**
+ * 交单和里程碑的庆祝文案。放在这里是因为「给了多少」只有本文件算得准
+ * （连击加成、仓库截断后的 got），session 那边再拼一遍容易和事件对不上。
+ * 纯派生：不读写 state、不抽 rng，同一批事件调几次都一样。
+ */
+export type CelebrationKind = "request" | "milestone";
+
+export type Celebration = {
+  readonly kind: CelebrationKind;
+  /** 胶囊第一行的主语：条子标题 / 里程碑标题 */
+  readonly name: string;
+  /** 跟在主语后面的那两个字 */
+  readonly tag: string;
+  /** 第二行奖励标签；仓库满到一件都没入库时为 undefined，HUD 少画一行 */
+  readonly reward?: string;
+  /** 连击 / 目标链进度的一句尾巴，HUD 不画也无妨 */
+  readonly note?: string;
+};
+
+/** "+淡水 ×12 · +食物 ×5"；一件都没入库返回 undefined */
+export function rewardLabel(cost: Cost): string | undefined {
+  const parts: string[] = [];
+  for (const id of RESOURCE_IDS) {
+    const n = cost[id] ?? 0;
+    if (n > 0) parts.push(`+${RESOURCE_NAMES[id as ResourceId]} ×${n}`);
+  }
+  return parts.length > 0 ? parts.join(" · ") : undefined;
+}
+
+/** 一条事件的庆祝文案；不值得庆祝的事件（贴单/过期/日记）返回 null */
+export function celebrationFor(event: BoardEvent): Celebration | null {
+  if (event.type === "request-done") {
+    return {
+      kind: "request",
+      name: event.request.title,
+      tag: "完成！",
+      reward: rewardLabel(event.got),
+      note: event.streak >= BOARD.streakAt ? `连着交了 ${event.streak} 单` : undefined,
+    };
+  }
+  if (event.type === "milestone-done") {
+    return {
+      kind: "milestone",
+      name: event.milestone.title,
+      tag: "达成！",
+      reward: rewardLabel(event.got),
+      note: `目标链 ${event.done}/${event.total}`,
+    };
+  }
+  return null;
+}
+
+/**
+ * 这一批事件里该演哪一个：一帧同时交单又达成里程碑时里程碑压过条子，
+ * 同类取最后一条。HUD 一次只挂得下一只胶囊，挑选规则放这儿省得每处各写一遍。
+ */
+export function pickCelebration(events: readonly BoardEvent[]): Celebration | null {
+  let request: Celebration | null = null;
+  let milestone: Celebration | null = null;
+  for (const ev of events) {
+    const cel = celebrationFor(ev);
+    if (!cel) continue;
+    if (cel.kind === "milestone") milestone = cel;
+    else request = cel;
+  }
+  return milestone ?? request;
 }

@@ -14,3 +14,9 @@ Round 1–2 已接线。探针须保持 `728b59b5`。`snapshot()` 不要扩字�
 ## 不要做
 
 官方 IP；改 TILE/花费/风暴；扩 snapshot；搬回根 `src/`；静默换模型；自己合 main。
+
+## Round 3 收口（父调度器）
+
+已接线：点袋 → `useItem`；`sfx.questDone` / `sfx.milestone`。
+`npm test` 21/21，探针仍 `728b59b5`。
+合 main 后 Pages：入口 https://9997433-bit.github.io/FKSHJ/ ，游戏 https://9997433-bit.github.io/FKSHJ/games/sea/

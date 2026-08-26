@@ -106,6 +106,16 @@ export const STORY_BEATS: readonly StoryBeat[] = [
     holdS: HOLD_JOURNAL,
   },
   {
+    // 净水机 + 钓鱼台都在跑才有「账」可算：一口水一口粮同时有了出处，
+    // 才轮得到分配。表序压在钓鱼台那条后面，读起来是同一件事的下半段。
+    id: "ration-ledger",
+    kind: "journal",
+    title: "日志 · 口粮账",
+    body: "水和鱼都有了固定出处，就该算账了。刻在舱板上：每人每天一罐水、一条鱼，多的进桶——谁也别多拿一口。",
+    require: { buildings: { purifier: 1, fish: 1 } },
+    holdS: HOLD_JOURNAL,
+  },
+  {
     // 首场风暴 50 秒预警、54 秒落下；能读到这条就说明人和指挥中心都还在。
     id: "after-storm",
     kind: "journal",
@@ -147,6 +157,16 @@ export const STORY_BEATS: readonly StoryBeat[] = [
     holdS: HOLD_BROADCAST,
   },
   {
+    // 第 4 天：口粮账立起来之后，淡水怎么分才是真规矩。天数梯子上
+    // 补的这一档，让第 3 天和第 5 天之间不再空一整天没有声音。
+    id: "half-cup-rule",
+    kind: "broadcast",
+    title: "电台 · 半杯的规矩",
+    body: "「渴的时候先含一口在嘴里，慢慢咽。省下的那半杯留给夜里发烧的人——水先给病人，这条别破。」",
+    require: { day: 4 },
+    holdS: HOLD_BROADCAST,
+  },
+  {
     id: "fifth-morning",
     kind: "journal",
     title: "日志 · 第五个早上",
@@ -164,5 +184,5 @@ export const STORY_BEATS: readonly StoryBeat[] = [
   },
 ];
 
-/** 表里一共几条，UI 显示「已解锁 3 / 14」用。 */
+/** 表里一共几条，UI 显示「已解锁 3 / 16」用。 */
 export const BEAT_COUNT = STORY_BEATS.length;

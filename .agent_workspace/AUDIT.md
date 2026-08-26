@@ -1,222 +1,157 @@
-# AUDIT — Round 2 重审：把新层折进同一套海之前，先把账算清
-
 MODEL_SLUG: claude-fable-5-thinking-xhigh
-（Round 2 fable-audit · 本机 · 只审不改。审计基线 = `agent/sea-sota-expand`
-@ `2218e76`（Round 1 已落地），**外加**审计进行中观察到的并行 WIP 工作区快照，
-两者在文中分开标注。Round 1 审计原文见 git 历史 `2218e76:.agent_workspace/AUDIT.md`。）
+
+# AUDIT — Round 3 收口审：合 main 前的三道闸
+
+（Round 3 fable-audit · 本机 · 只审不改。审计基线 = `agent/sea-sota-expand`
+@ HEAD `16db820`（Round 3 简报已开），**外加**审计期间（08:56–09:02）观察到的
+未提交 WIP。Round 2 审计原文在 git 历史 `16db820:.agent_workspace/AUDIT.md`。）
 
 ---
 
-## 〇、现场情况：基线不是静止的
+## 〇、现场情况：审计期间基线又在动，且这次是往好里动
 
-审计期间（08:06–08:14）工作区被并行代理持续写入，必须先把「已落地」和
-「在飞」分开，否则 P0 会开错药：
-
-- **已落地（HEAD `2218e76`）**：session 接线了道具袋 / 剧情卡 / 请求板
-  （`3c6f7ff`），探针 hash `728b59b5` 本机复核未漂移，旧 13 测全绿。
-- **WIP（未提交，审计时仍在变）**：
-  - `data/catalog.ts`：+`dropWeight` 权重轴、+`pickDropByRoll` 加权抽签、
-    +2 新条目 `netScrap`/`glassFloat`（共 16 件）；
-  - `sim/inventory.ts`：+`ItemPity` 保底计数、+`rollItemDrop`（读
-    `constants.ITEM_DROP`，固定每次消耗 2 次 rng）；
-  - `sim/expand.ts`：BOARD 节奏数折进 `constants.REQUESTS`（35/40/3/90），
-    +`PROBE_QUIET_S`/`quietThroughProbe` 守护，+`MILESTONES` 目标链
-    （4 条：首台净水机 / 撑过风暴 / 木筏 12 格 / 活到第 3 天）；
-  - `story/beats.ts`：10 条 → 14 条（+`twelve-planks`/`still-drip`/
-    `after-storm`/`third-morning`）；
-  - 3 个未跟踪测试文件（expand / inventory / story）。
-- **当前门禁是红的**：`npm test` = 17 测 **16 过 1 挂**。挂的是新
-  `story.test.ts`「story unlock order」——期望表还是 10 条的旧序，
-  `beats.ts` 已经 14 条。旧 13 测仍绿，但「全绿才算收口」这条线现在没过。
-- `session.ts`（08:06 后未再动）**尚未接**任何 WIP 新面：没有调
-  `rollItemDrop`、没有调 `updateMilestones`、没有 `noteStorm`、没有任何
-  `spawnJunk({ look })` 调用点。
+- **已落地（HEAD `16db820`）**：Round 2 六条 P0 已在 `61a6bca` 折进同一套海
+  ——四建材入袋双写已拆（`tryScoop` 只 `gain(res)`，袋的唯一入口是
+  `rollItemDrop`）；look 闭环已通（`c308b92` spawn 期换装 + `2342e39`
+  net/float 补图）；里程碑接线四件套齐（session 217–225 行：
+  `storm-strike`→`noteStorm`、每帧喂 facts 调 `updateMilestones`、quest
+  胶囊空闲挂 `nextMilestone().hint`、`questDone` 庆祝）。
+- **WIP（未提交，8 文件 +317/−16）**：`sim/inventory.ts` +110 行吃喝出口
+  （`useItem`/`useYieldOf`/`canUseItem`/`USABLE_ITEM_IDS`）；
+  `sim/expand.ts` +`Celebration` 庆祝文案派生 + `quietThroughProbe` 双头
+  守护（firstS 和 postT 都查）；catalog/story 注释与文案修订；
+  inventory.test.ts +4 条 item-use 测试。
+- **审计中亲眼看到一次红转绿**：08:58 时 `useItem` 实现是三参
+  `(inv, res, id)` 而测试按简报写的两参 `(inv, id)` 调，1 测红
+  （`reason: 'not-usable'`——`res` 位被 "kelp" 顶掉）；09:00 并行代理把
+  测试对齐三参签名，**全套 21/21 绿**。签名偏离简报（简报说
+  `useItem(inv, id)` 一类），但三参版把「先出袋后 `gain`」的两步序锁进
+  同一个函数里，比让 session 拼两步更不容易漏账——**裁决：接受三参版**，
+  测试已锁，不要再改回去。
 
 ---
 
-## 一、袋 vs Resources：怎么折
+## 一、吃喝是否可测：sim 层可测（已验），玩家层还不可
 
-### 1.1 现状判定：同名双账本，已经开始说谎
+### 已验（WIP，未提交）
 
-HEAD 的 `session.tryScoop()`（session.ts 239–256）对每次捞取做了**两笔记账**：
-`gain(res, haul.kind, amount)` 入资源账本，**同时**
-`addItem(bag, haul.kind, amount)` 入袋。而 `haul.kind` 永远是四种建材
-（`Junk.kind` 只认 `JunkKind`），`isItemId()` 对这四个 id 恒真——所以：
+- `constants.ITEM_USE`（305–312 行）就是唯一汇率真源：kelp→food 4、
+  driedFish→food 8、freshWater→water 8。`inventory.ts` 的
+  `USE_TABLE: Partial<Record<ItemId, Cost>> = ITEM_USE` 兼作编译期守卫，
+  表里混进坏 id 先红编译不红运行时。
+- `useItem` 语义正确：表外物品 `not-usable`、袋里没有 `not-held`（两种
+  失败都分文不动）；成了则 `removeItem` 原子出袋 1 件再逐资源 `gain()`，
+  `gained` 报**截断后**的实际入库量；满仓时 `gained` 为 0 但那件照样
+  消耗——正是简报「原子出袋，满仓截断」的字面语义。
+- 4 条单测全绿，含满仓截断那条（water 99 + 8 → 100，入 1 丢 7）。
+  旧测未动，全套 21/21 绿。
 
-- 袋里只可能出现 wood/plastic/metal/rope 四行，是 `Resources` 的**影子副本**；
-- 花钱的路（建造 `pay`、交单 `pay`、维修）只扣 `res` 不扣袋——开局捞十把后
-  袋里写着「木板 ×40」而仓库剩 6，两个同名数字已经对不上；
-- 袋是只写不读：全工程没有第二处读 `session.bag`，HUD 也没有物品栏字段
-  （`HudInfo` 只有 storyBeat/quest/lootToast）。
+### 未接（挡在「玩家能吃喝」前面）
 
-这正是 Round 1 审计红线「禁止并行第二套经济」担心的形态：现在没人看见所以
-没炸，Round 2 简报第 5 条一旦把「可选物品栏条」画出来，玩家看到的就是一栏
-假数。**双写必须在 HUD 显示袋子之前拆掉。**
+1. **session 零调用**：全工程只有 inventory.ts 和测试碰 `useItem`。
+   按简报这归父调度器，但合 main 时若 HUD 画着袋子却点不动，等于上一轮
+   「只写不读」换了个部位。
+2. **HUD 没有点击面**：`drawBagStrip` 是纯绘制，格子几何
+   （x0=16、y0=192、pad=10、cell=36、gap=6、格数 `INVENTORY.hudSlots`）
+   全是函数内局部量，**没有导出点击区矩形 API**——简报第 2 条两个选项
+   （袋格可点 / 给矩形 API）一个都还没做。session 想 hit-test 只能抄
+   一份几何常数，那是第二真源，禁止。
+3. **input 路由缺位**：`consumeClick()` 的点击现在只进
+   `tryPlaceAt`/取消选中两条路（session.update 205–209），没有袋区分流。
 
-### 1.2 折法（裁决）
-
-1. **`Resources` 仍是唯一可花账本**：建造、请求板、产消、维修，一律
-   `pay`/`gain`，一行不动。
-2. **四种建材停止入袋**：删掉 `tryScoop` 里对建材的 `addItem` 双写。
-   `markSeen`/`seenThisRun`（图鉴）与 lootToast 和袋无关，原样保留。
-3. **袋 = 杂货位，入口只有 `rollItemDrop`**：只装 `dropWeight > 0` 的
-   12 件（tarp/barrel/kelp/…/glassFloat）。WIP catalog 里那句注释
-   「四种建材……入 `Resources` 同时进袋」是**错误方向**，接线时要一并纠正。
-4. **袋要有出口，最低限三件补给品**：kelp/driedFish → food、
-   freshWater → water，由 session 层做「先 `removeItem(bag)`、成了再
-   `gain(res)`」的两步序（两个操作各自原子，先出袋后入库，永不倒扣）。
-   **不改 `pay`/`gain` 签名**，汇率进 constants 新表（如 `ITEM_USE`），
-   不散在 session 里。工具/珍品（hook/wrench/flare/compass/medkit/
-   glassFloat/netScrap 的效果）本轮只作图鉴 + 结算展示，效果留 P1。
-   没有出口的袋子就是死胡同经济，等于换个姿势违反「折回 Resources 轴」。
-5. **常数真源冲突要销账**：`constants.INVENTORY.maxPerItem = 20`（按种类
-   上限哲学）与 `inventory.ts` 的格子×堆叠模型（`DEFAULT_SLOTS = 16` +
-   catalog 逐件 `stack`）是两套互斥的容量论，实现从未读过 maxPerItem。
-   裁决：以实现为准，`INVENTORY.maxPerItem` 删除或改注释标废，
-   `hudSlots` 只管展示。别留两份「真源」各说各话。
+**验收标准（合 main 前）**：hud 导出 `bagSlotRects()`（或等价物）→
+session 点击先查袋区、命中则 `useItem` + 飘字/音效、未命中走建造 →
+一条 headless 单测从 session 层点袋吃一件海带、断言 food 涨 4 且袋少
+1 件。三样都齐才算「吃喝可测」；只有 sim 层函数 + 单测的现状算**半程**。
 
 ---
 
-## 二、海面 look：不算闭环
+## 二、探针是否仍冻：仍冻（本机实测两次，非推理）
 
-**判定：不算。** `look` 是一条铺设完整但从未通水的管道：
-
-- 管道侧全齐：`Junk.look` / `SpawnOpts.look` / `junkArtId()` / `takeJunk`
-  返回 `look` / `drawJunk` 对任意登记 id 照画、未登记兜底「未知包裹」，
-  高亮环缺口还会露出该物 tint（junk.ts 436–443）；
-- 调用侧为零：全库 `spawnJunk` 没有任何一处传 `look`。海面从开服到现在
-  只刷四种建材剪影，14（现 16）件目录物有 10（12）件**永远不可见**，
-  存档图鉴 `seen[]` 的上限被钉死在 4 条。
-
-**WIP 的 `rollItemDrop` 单独落地也闭不了环。** 它注释里写的接线点是
-「`tryScoop` 捞取成功之后掷」——那是「捞木板时凭空从袋里多出一把海带」，
-补上了简报第 2 条（进袋），但不满足第 1 条「**用已有 look 字段让玩家看见**
-油布/桶/海带」。品类的快感在「远远看见一只桶、开过去捞它」，不在结算飘字。
-
-**闭环的验收标准**（缺一环都不算）：
-海面出现带 `look` 的剪影 → 高亮环露它的颜色 → 捞取 → lootToast 报条目名
-→ 入袋 → `seen[]` 图鉴点亮。
-
-**落法（P0-3）**：把掉签**前置到 `spawnJunk`**——刷新时按
-`ITEM_DROP.chance` 掷「这件带不带货」，带货就 `look = 抽中条目`，保底
-（pity）挂在 `JunkField` 上；`rollItemDrop(rng, pity)` 本身是 rng 源无关的
-纯函数，包一层 field LCG 适配器即可直接复用。捞取时 session 只需：
-`haul.look` 是杂货 id → `addItem(bag, look)` + lootToast + `markSeen`。
-
-**指纹安全性（已核）**：探针磁带（scripts/probe-session.ts）只有移动 + 3 次
-建造、**无捞取**；`snapshot()` 无任何 junk 字段；collector 产出走
-`PRODUCTION` 表不吃 junk。所以 spawn 期多消耗 field LCG 只挪漂浮物落点，
-**不进指纹**——`728b59b5` 理论不动，但 P0 要求跑一次探针实测锁死，
-不许凭推理签收。反过来若坚持捞取时用 `session.rng` 掷，虽然探针窗口内
-同样安全（磁带不捞），但「看见」这一环就永远缺——**结论：用 spawn 期方案**。
-
-小尾巴：WIP 新条目 `netScrap`/`glassFloat` 在 `world/items.ts` **没有登记
-外观**，上了海面会全画成「未知包裹」。P0 内补两张登记
-（`registerItemArt` 入口现成），否则「新条目」首秀就是兜底皮。
+- `npm run probe` 在**带 WIP 的工作区**跑了两遍（08:59、09:01），两次均
+  `status: deterministic`、`traceHash: 728b59b5`、300 tick、9 磁带事件。
+- `snapshot()`（session.ts 156–170）没扩字段：bag/story/board/milestones
+  一个都不在里面，与 Round 3 简报「不要扩 snapshot」一致。
+- `useItem` 不碰 rng、探针磁带无捞取无点袋，天然不进指纹；
+  `quietThroughProbe` 的双头守护（firstS **和** createBoard().postT 都
+  必须 > 5s）比上一轮更严，好评。
+- 里程碑在 5s 窗口内零达成的结构性保证仍成立：tiles 磁带顶到 11 < 12、
+  day 1 < 3、purifier 0、storm 首暴 50s。
+- **两条尾巴**：① 树在动，本报告的 hash 只对审计时刻负责——合 main 的
+  那个 commit 上必须再跑一次探针，绿了才许合；② `pages.yml` 的门禁只有
+  `npm test` + `npm run build`，**探针不在 CI 里**——合 main 前把
+  `npm run probe`（外加断言 hash）塞进 workflow 或至少写进合并检查单，
+  别让指纹只活在审计员的手上。
 
 ---
 
-## 三、里程碑：sim 层已就位，缺的全是接线和信号
+## 三、Pages 地址：仓库侧已就绪，地址没写进文档
 
-WIP 的 `MILESTONES`（expand.ts 215–252）质量过关：4 条对齐简报、无 rng、
-`best` 单调不回退、幂等（`done` 里有就跳过）、奖励走 `gainAll` 不会失败、
-事件出口 `milestone-done` 照 `ThreatEvent` 模式——「要有可测状态，不要只写
-文案」这条达标。**但它现在是一座没有引线的炮**，缺五样：
-
-1. **session 接线**：没人调 `updateMilestones`。需要每帧（或降频）用现成
-   信号现凑 `MilestoneFacts`：`countBuilding(raft, "purifier")`、
-   `raft.cells.size`、`this.day`——三样 session 手边全有。
-2. **「撑过风暴」的事实源**：`threats.ts` 没有 storm-end 事件，只有
-   `storm-warn`/`storm-strike`（每场一次，threats.ts 178）。判定语义要
-   钉死：**收到 `storm-strike` 且本帧未 `over` = 撑过一场**，session 在
-   事件分发循环里调 `noteStorm(board)` 即可，`expand.ts` 已留好这个口。
-   顺带记一笔：story 的 `after-storm` beat 用 `elapsed: 60` 冒充
-   「风后」（首暴 54s 落下所以大致成立），是定时器硬编码的擦边球——
-   里程碑绝不能抄这个近路，story 侧 P1 也该改挂真实事件。
-3. **HUD 展示位**：`HudInfo` 没有里程碑字段。最低限复用现有 quest 胶囊
-   ——板上没条子时挂 `nextMilestone().hint`，达成瞬间把 progress 换成
-   「完成！」传 1–2 秒（hud.ts 注释本来就预留了这个用法），庆祝可复用
-   storyBeat 卡发 `milestone.note`。不新开 HUD 面。
-4. **结算面**：`result()`/menus 不知道 `milestoneSummary()` 的存在。
-   结算页至少报一行「里程碑 n/4」，否则长目标做完了玩家也不知道。
-5. **测试与探针守护**：
-   - 4 条里程碑在探针 5s 窗口内都不可能达成（tiles 起 9、磁带只加 2 格
-     = 11 < 12；day = 1 < 3；purifier = 0；storm 首暴 50s 后）——安全,
-     但要有单测锁「探针磁带 300 tick 内零 `milestone-done`」，别靠默契；
-   - `updateMilestones` 不吃 dt 不抽 rng，挂在 `updateBoard` 之后接线
-     不会碰贴单的 rng 序列（`quietThroughProbe` 守护已在 WIP 里，好评）；
-   - milestone 奖励会改 `res`——这就是它必须被上面那条「窗口内零达成」
-     测试锁住的原因，否则指纹会被 `gainAll` 悄悄改掉。
+- 仓库 `9997433-bit/FKSHJ` 的 GitHub Pages **已启用**（API 实查：
+  `build_type: workflow`、`html_url: https://9997433-bit.github.io/FKSHJ/`）。
+- 部署链完整：`pages.yml` 在 push main 时 `npm ci → npm test →
+  npm run build → deploy dist/`——测试红着连部署都不会发生，门禁顺序对。
+- **合 main 后的地址**（简报第 6 条要写清的那两行）：
+  - 入口导航页：`https://9997433-bit.github.io/FKSHJ/`
+  - 海上生存游戏：`https://9997433-bit.github.io/FKSHJ/games/sea/`
+- 路径正确性已验：vite `base: "./"`，构建产物
+  `dist/games/sea/index.html` 引用 `../../assets/...` 相对路径，项目页
+  子路径下不会 404；layout.test 锁了根入口 → 游戏页的链接。`dist/` 在
+  .gitignore 里，不会把陈旧产物带上 main。
+- **缺口**：README 只写了本地 5173/4173 地址加一句「静态托管同理」，
+  GAME_SPEC 一处都没提公网地址。P0：把上面两条 URL 原文写进
+  GAME_SPEC（或 README 的部署节），这是简报第 6 条的字面要求。
 
 ---
 
-## 四、P0 清单（Round 2 收口顺序）
+## 四、合 main 前 P0 清单（顺序即收口顺序）
 
-1. **把门禁修绿**：`story.test.ts` 期望表与 14 条 `beats.ts` 对齐（表序
-   验证连同 4 条新 beat 一起锁）。规矩：**测试红着，后面一切不签收**。
-   现状 16/17。
-2. **袋的折法落地**（§一）：删 `tryScoop` 四建材入袋双写；`rollItemDrop`
-   出的杂货是袋的唯一入口；三件补给品（kelp/driedFish/freshWater）给
-   使用出口（session 层先出袋后 `gain`）；`INVENTORY.maxPerItem` 销账。
-   验收：袋里永远不出现四建材行；用一件海带 → food 数字涨、袋里少一件、
-   两边永不双花。
-3. **look 闭环**（§二）：掉签前置 `spawnJunk`（field LCG + pity 挂
-   field），带货漂浮物以条目剪影上屏；捞取 → lootToast 报条目名 → 入袋
-   → `seen[]`；`netScrap`/`glassFloat` 补外观登记。验收：一局 5 分钟内
-   海面肉眼可见 ≥3 件非建材剪影；探针实跑 hash 仍 `728b59b5`。
-4. **里程碑接线**（§三）：session 喂 facts 调 `updateMilestones`；
-   `storm-strike` 且未 over → `noteStorm`；quest 胶囊空闲时挂当前目标、
-   达成庆祝；结算报 n/4。验收：headless 造 12 格 / 熬过首暴 / 撑到第 3 天
-   各能在单测里打点达成且只发一次奖。
-5. **确定性守护成文**：单测锁 `quietThroughProbe()`、探针窗口内零贴单 /
-   零 `milestone-done`；`snapshot()` 不扩字段；概率/权重全走
-   `constants.ITEM_DROP` + catalog `dropWeight`，session 不留本地数。
-6. **隔离与存档防回归**：3 个新测试文件已在 `games/sea/src/tests`（对）；
-   新增一律不回流根 `src/`；`seen[]` 继续兼容读 `cww_sea_v1` 旧档
-   （缺字段当空表，已成立，别破）。
+1. **把 WIP 提交掉**：`useItem` 一族 + 4 条绿测 + expand/catalog/story
+   修订现在全是未提交状态，审计所有绿灯都验在工作区上，不 commit 一切
+   白验。（审计员无 git 权限，此条归开发侧。）
+2. **吃喝走完后半程**（§一）：hud 导出袋格点击区 API → session 点击
+   分流（袋区优先于建造）→ headless 单测从 session 层吃一件断言两本账。
+   缺任何一环，合 main 后玩家面对的是「看得见点不动」的袋子。
+3. **庆祝短音补上**：`request-done`/`milestone-done` 现在复用
+   `sfx.scoop()`（session 245–257），audio.ts 没有专用短音；expand.ts
+   WIP 已备好 `Celebration` 文案派生，音效钩子是简报第 3 条的正文而非
+   可选项。加 `sfx.celebrate()` 一类短音，不引入官方曲。
+4. **结算报里程碑 n/4**：`result()`（session 172–182）仍不知道
+   `milestoneSummary()` 的存在——Round 2 P0-4 的这半条漏掉了，长目标
+   做完玩家在结算页看不见。最低限加一行数字。
+5. **Pages 地址进文档**（§三）：两条 URL 写进 GAME_SPEC/README。
+6. **合并时点的双绿复核**：合 main 的 commit 上 `npm test` 21/21 +
+   `npm run probe` = `728b59b5` 各跑一次；探针建议顺手进 CI。
 
-### 负面清单（Round 2 增补，叠加 Round 1 全部条款）
+### 负面清单（Round 1/2 全部条款继续有效，重点重申）
 
-- 不给袋子做货币/交易/第二价格系统；杂货出口只有「使用折回 Resources」
-  和图鉴，别的都是 P1 之后的事。
-- 不在 `economy`/`threats` 老文件里挂物品效果；medkit/wrench/flare 的
-  效果化留 P1，且到时也走事件出口，不改老签名。
-- 不动四建材的 `SALVAGE.weights`/`yields`、TILE、花费、风暴旧数——
-  除非有意换探针 hash，且必须在提交信息里明说。
-- 不扩 `snapshot()`；官方 IP 零接触照旧。
+- 袋子出口只有 `useItem` 折回 Resources 和图鉴；不做货币/交易。
+- 不动 TILE/花费/风暴旧数、不扩 `snapshot()`、不搬回根 `src/`、
+  官方 IP 零接触、不自己合 main。
+- `ITEM_USE` 是吃喝唯一真源；catalog 的 food/drink 标签只管 HUD 分栏，
+  别拿标签当判据（WIP 注释已写明，执行时别走样）。
 
 ---
 
-## 五、P1 备忘（P0 之外，本轮见缝插针不强求）
-
-- 工具/珍品效果化：wrench 修理加速、flare 逼退一波海盗、medkit 补最残格
-  ——全走事件，先设计后动手。
-- story 触发器接真实事件（`pirate-killed`/`storm-strike`），替掉
-  `after-storm` 的 elapsed 擦边球；日记本回看界面消费 `unlockedBeats`。
-- 结算页展示本局新点亮图鉴数 / 交单数 / 里程碑；`boardSummary` 与
-  `milestoneSummary` 都是现成的。
-- 浏览器实机键鼠走完一局 + 录屏（Round 2/3 一路欠到现在的人工验收）。
-
----
-
-## 六、返回摘要
+## 五、返回摘要
 
 **MODEL_SLUG**: `claude-fable-5-thinking-xhigh`
 
 三问三答：
 
-1. **袋 vs Resources**：`Resources` 唯一可花账本；四建材**停止入袋**（删
-   双写）；袋只装 `rollItemDrop` 出的杂货，补给品给「出袋 → `gain`」的
-   使用出口，工具珍品本轮止步图鉴；`INVENTORY.maxPerItem` 与实现冲突,
-   销账。
-2. **海面 look**：**不算闭环**——管道全通、调用为零，海上仍只有四种剪影;
-   捞取后掷的 `rollItemDrop` 只补「进袋」不补「看见」。掉签前置到
-   `spawnJunk`（field LCG + pity 挂 field），指纹已核不受影响，但须实测
-   锁 `728b59b5`。
-3. **里程碑**：WIP sim 层合格，缺 session 接线、`storm-strike`→
-   `noteStorm` 的事实源、HUD/结算展示位、以及「探针窗口零达成」的守护
-   测试。另有一条现行红测（story 10 vs 14）挡在所有验收前面。
+1. **吃喝是否可测**：sim 层**可测且已测**——`useItem` 原子出袋、按
+   `ITEM_USE` 入库、满仓截断，4 条单测绿（含截断）；但 session 零调用、
+   HUD 无点击面、无点击区 API，玩家层**不可测**。合 main 前须走完
+   「袋格矩形 API → session 分流 → headless 端到端测」后半程。
+2. **探针是否仍冻**：**仍冻**——带 WIP 的树上实跑两次
+   `traceHash: 728b59b5`，`snapshot()` 未扩字段，守护反而更严了；
+   但探针不在 CI，合并 commit 上须再实测一次。
+3. **Pages 地址**：Pages 已启用（workflow 构建），合 main 后入口
+   `https://9997433-bit.github.io/FKSHJ/`、游戏
+   `https://9997433-bit.github.io/FKSHJ/games/sea/`；相对路径已验不会
+   404。地址还没写进任何文档，须落 GAME_SPEC/README。
 
-P0：①修绿 story 红测 → ②袋折法（删双写 + 补给品出口）→ ③look 闭环
-（spawn 期掉签 + 新条目补图）→ ④里程碑接线四件套 → ⑤确定性守护成文 →
-⑥隔离/存档防回归。
+P0：①提交 WIP → ②吃喝后半程（点击区 + session 分流 + 端到端测）→
+③庆祝短音 → ④结算报 n/4 → ⑤地址进文档 → ⑥合并点双绿复核。
+门禁现状：21/21 绿、探针绿——是三轮以来第一次审计时就全绿的收口窗口，
+别让它在合并前又红回去。

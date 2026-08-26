@@ -1,3 +1,5 @@
+MODEL_SLUG: gpt-5.6-sol-xhigh-fast
+
 # Round 2 基准与确定性探针
 
 ## 入口
@@ -115,3 +117,22 @@ Smoke 同时验证 hub 入口 `index.html` 与 Sea 源入口 `games/sea/index.ht
 `status: "deterministic"`，使用种子 `1587879974`，推进 300 tick、重放 9 个
 输入磁带事件，轨迹为 2,389 bytes。Smoke 检查 17/17 个必需文件，`dist/`
 仍为构建产物且不在必需列表中。
+
+## Round 3 gpt-probe 当前实测
+
+2026-08-26 UTC 使用 Node `v22.14.0` 和默认预算倍数 `1`，从仓库根
+`/workspace` 依次实跑 `npm run probe`、`npm run bench`、`npm run smoke`。
+
+| 命令 / workload | median | p95 | 预算 | 结论 |
+| --- | ---: | ---: | ---: | --- |
+| `npm run probe` | — | — | — | 确定性通过，hash `728b59b5` |
+| raft-expansion | 9.504 ms | 10.066 ms | 120 ms | 通过 |
+| debris-generation | 156.938 ms | 163.366 ms | 225 ms | 通过 |
+| production-consumption-step | 7.977 ms | 8.038 ms | 80 ms | 通过 |
+| `npm run smoke` | — | — | — | 17 个必需源文件通过；不依赖 gitignored 的 `dist/` |
+
+`npm run bench` 汇总为 3/3 通过，workload checksum 为 `925273169`；对应吞吐量
+分别为 2,574,424、76,463、75,220,169 ops/s。探针结果为 `ok: true`、
+`status: "deterministic"`，使用种子 `1587879974`，推进 300 tick、重放 9 个
+输入磁带事件，轨迹为 2,389 bytes。Smoke 检查 17/17 个必需文件；必需列表只含
+源码、配置和文档，不包含 `dist/`。

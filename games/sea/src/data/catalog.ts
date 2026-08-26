@@ -6,10 +6,16 @@
  *   Node 下可直接 import 做单测。
  * - 这是**和资源表并列**的一层，不是替代品。`sim/rules.ts` 的 `Resources`
  *   仍然是建造/产出/消耗的唯一账本，行为一分不改；道具袋走
- *   `sim/inventory.ts`，两边目前互不写入，等 session 接线时再决定汇率。
+ *   `sim/inventory.ts`。两本账之间只有一条单向支流：袋里的口粮/饮水可以
+ *   吃掉换成资源（`inventory.useItem`，汇率在 `constants.ITEM_USE`），
+ *   反向没有口子，资源永远换不回物品。
  * - wood / plastic / metal / rope 四个 id 和 `ResourceId` 同名是**故意的**：
- *   将来「捞上来先进袋、再入库」时不用再做一层 id 映射。同名不等于同一份
- *   数量，别把两边的数字加在一起。
+ *   共用一套 id 省掉图鉴、配方、飘字里的映射层。但同名**不等于**同一份
+ *   数量，别把两边的数字加在一起——捞取的正菜只入 `Resources`，四种建材
+ *   不进袋（早先的双写已经拆掉）。
+ * - 能不能吃喝的**真源是 `constants.ITEM_USE`**（查询走
+ *   `inventory.isUsableItem`）。这里的 `food` / `drink` 标签是给 HUD 分栏
+ *   用的展示属性，两边眼下正好对得上，但别拿标签当吃喝判据。
  * - `ITEM_IDS` 的顺序 = 本文件 `ITEMS` 的书写顺序，是全局唯一的排序真源：
  *   背包列举、快照序列化、多物品原子操作都按它走，保证同样的输入永远得到
  *   同样的输出顺序。往表里插新物品会改变这个顺序，加在末尾最稳妥。
@@ -81,7 +87,7 @@ export type ItemSpec = {
   readonly tags: readonly ItemTag[];
   /**
    * 捞取附带掉落的权重（相对值，非概率）；0 = 海里不出，只能从别处来。
-   * 四种建材是 0：它们本来就是捞取的**正菜**（入 `Resources` 同时进袋），
+   * 四种建材是 0：它们是捞取的**正菜**，直接入 `Resources` 而不进袋；
    * 附带掉落这一发是给「正菜之外的惊喜」留的，再掉一次木板没有意义。
    */
   readonly dropWeight: number;

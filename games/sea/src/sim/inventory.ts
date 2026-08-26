@@ -6,17 +6,22 @@ import {
   type ItemBundle,
   type ItemId,
 } from "../data/catalog";
-import { ITEM_DROP } from "../data/constants";
-import type { Rng } from "./rules";
+import { ITEM_DROP, ITEM_USE } from "../data/constants";
+import { gain, RESOURCE_IDS } from "./rules";
+import type { Cost, Resources, Rng } from "./rules";
 
 /**
  * 道具袋：`data/catalog.ts` 那些东西的容器。
  *
  * 契约：
  * - 纯数据 + 纯函数，不碰 DOM、不碰画布、不持有定时器，Node 下可直接
- *   import 做单测。除了传进来的那个 `Inventory`，本文件不写任何外部状态。
- * - **不动 `Resources`。** 建造花费、产出、断粮判定全在 `sim/rules.ts` 与
- *   `sim/economy.ts`，行为一分不改；这袋子是并列的一层，session 以后再接线。
+ *   import 做单测。除了传进来的那个 `Inventory`（以及 `useItem` 收到的那本
+ *   `Resources`），本文件不写任何外部状态。
+ * - **`Resources` 仍是唯一可花的账本。** 建造花费、产出、断粮判定全在
+ *   `sim/rules.ts` 与 `sim/economy.ts`，`pay` / `gain` 的签名和行为一分不改。
+ *   袋子通向资源账本的口子只有文件末尾那一个 `useItem`：按
+ *   `constants.ITEM_USE` 的汇率吃喝一件，走 `rules.gain()` 入库。除它以外
+ *   本文件任何函数都不碰 `Resources`——袋子不是第二套经济，是一条单向支流。
  * - **原子**：所有写操作要么整笔成交，要么分文不动，不存在「装了一半」。
  *   想让打捞那种「捞爆了就溢出丢弃」的语义，显式传 `{ partial: true }`。
  * - **有上限**：两道闸门叠着算——每格最多堆 `ITEMS[id].stack` 件（单格上限），
@@ -350,4 +355,99 @@ export function rollItemDrop(rng: Rng, pity: ItemPity): ItemId | null {
   // 掉落表整张为空时 id 会是 null，那就当这一把没出货，保底接着攒
   pity.misses = id === null ? misses + 1 : 0;
   return id;
+}
+
+// ── 吃喝：袋子通向 Resources 的唯一出口 ─────────────────────────────
+
+/**
+ * 汇率表就是 `constants.ITEM_USE`，本文件不留副本、不加第二张表。
+ *
+ * 这行标注顺带是编译期守卫：constants 那边写进一个不认识的物品 id 或
+ * 资源 id，先在这里红一条，而不是等运行时静默吃掉一件东西。
+ */
+const USE_TABLE: Readonly<Partial<Record<ItemId, Cost>>> = ITEM_USE;
+
+/** 吃不成的两种理由 */
+export type UseDenial =
+  | "not-usable" // 不在 ITEM_USE 表里：建材、工具、珍品都归这类
+  | "not-held"; // 表里有，袋里没有
+
+export type UseResult = {
+  readonly ok: boolean;
+  /**
+   * 真正入库的量，已按 `RESOURCE_CAP` 截断（满仓时是 0，那一件照样消耗
+   * 掉——见 `useItem` 的注释）。失败时是空表。
+   */
+  readonly gained: Cost;
+  /** 成功时为 null */
+  readonly reason: UseDenial | null;
+};
+
+/**
+ * 吃一件某物能换多少资源（已洗过脏数：非正数 / NaN 一律剔掉）。
+ * 表外物品返回空表。HUD 画提示、`useItem` 记账都读它，只此一份算法。
+ */
+export function useYieldOf(id: ItemId): Cost {
+  const raw = USE_TABLE[id];
+  if (!raw) return {};
+  const out: Cost = {};
+  for (const rid of RESOURCE_IDS) {
+    const n = normalizeCount(raw[rid] ?? 0);
+    if (n !== null && n > 0) out[rid] = n;
+  }
+  return out;
+}
+
+/**
+ * 能直接吃喝的东西，按 catalog 全局顺序。
+ * 「表里有」还不够，得真能换出东西——只写了个 0 的条目等于没写，
+ * 不然玩家点一下白丢一件。
+ */
+export const USABLE_ITEM_IDS: readonly ItemId[] = ITEM_IDS.filter((id) => {
+  const y = useYieldOf(id);
+  return RESOURCE_IDS.some((rid) => (y[rid] ?? 0) > 0);
+});
+
+const USABLE_SET: ReadonlySet<ItemId> = new Set(USABLE_ITEM_IDS);
+
+/** 这东西能不能吃喝（只问表，不问袋） */
+export function isUsableItem(id: ItemId): boolean {
+  return USABLE_SET.has(id);
+}
+
+/** 现在点这一格有没有用（表里有 + 袋里至少一件）。HUD 置灰按它。 */
+export function canUseItem(inv: Inventory, id: ItemId): boolean {
+  return isUsableItem(id) && has(inv, id, 1);
+}
+
+/**
+ * 吃/喝一件：原子出袋 1 件，再按 `constants.ITEM_USE` 的汇率入库。
+ *
+ * 顺序是**先出袋后入库**（永不倒扣），任何一步不成都不会留下半笔账：
+ * - 不在表里（建材、工具、珍品）→ `not-usable`，袋和仓库分文不动；
+ * - 表里有但袋里没有 → `not-held`，同样分文不动（`removeItem` 默认全或无）；
+ * - 成了 → 袋里那一件必然扣掉，`gained` 报**实际**入库量。
+ *
+ * **满仓截断**：水/食已经顶到 `RESOURCE_CAP` 时 `gain()` 只入得下多少算
+ * 多少，`gained` 可能是 0，而那一件东西照样消耗——同捞取的溢出丢弃语义。
+ * 想让玩家别白喝，UI 侧拿 `useYieldOf` 和当前库存自己先劝一句，本函数不
+ * 替调用方做这个决定。
+ *
+ * 一次只吃一件：连吃 N 件就调 N 次，每次各自原子。汇率表若给了多种资源，
+ * 按 `RESOURCE_IDS` 顺序逐项入库，结果与表里的键序无关。
+ *
+ * 接线点是 HUD 点袋格 → session 转发（session 层不写汇率）；本函数不碰
+ * rng、不碰 `pay`。
+ */
+export function useItem(inv: Inventory, res: Resources, id: ItemId): UseResult {
+  if (!isUsableItem(id)) return { ok: false, gained: {}, reason: "not-usable" };
+  if (!removeItem(inv, id, 1).ok) return { ok: false, gained: {}, reason: "not-held" };
+
+  const yields = useYieldOf(id);
+  const gained: Cost = {};
+  for (const rid of RESOURCE_IDS) {
+    const n = yields[rid] ?? 0;
+    if (n > 0) gained[rid] = gain(res, rid, n);
+  }
+  return { ok: true, gained, reason: null };
 }

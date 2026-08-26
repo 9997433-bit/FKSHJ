@@ -1,4 +1,4 @@
-import { itemName } from "./data/catalog";
+import { isItemId, itemName } from "./data/catalog";
 import { bestDay, commitRun, markSeen } from "./data/save";
 import { sfx } from "./fx/audio";
 import { MAX_PARTICLES, type Particle, capParticles, drawParticles, stepParticles } from "./fx/particles";
@@ -58,6 +58,7 @@ import {
   createItemPity,
   listItems,
   rollItemDrop,
+  useItem,
   usedSlots,
   type Inventory,
   type ItemPity,
@@ -65,7 +66,7 @@ import {
 import { stormWarnRatio } from "./sim/threats";
 import { createStory, updateStory, type StoryState } from "./story";
 import type { EndReason } from "./ui/menus";
-import { drawHud, resetHud, type BuildSlot } from "./ui/hud";
+import { clickBagStrip, drawHud, resetHud, type BuildSlot } from "./ui/hud";
 import { itemLabel } from "./world/items";
 import { drawJunkField, drawJunkHighlight, makeJunkField, reapJunk, type JunkField, updateJunk } from "./world/junk";
 import { drawPirates, drawSkiff } from "./world/craft";
@@ -205,7 +206,7 @@ export class Session {
     const click = steer?.click ?? null;
     if (click) {
       if (click.secondary) this.selected = null;
-      else this.tryPlaceAt(click.x, click.y);
+      else if (!this.tryBagClick(click.x, click.y)) this.tryPlaceAt(click.x, click.y);
     }
 
     updateJunk(this.junk, dt);
@@ -247,12 +248,12 @@ export class Session {
       for (const ev of boardEvents) {
         if (ev.type === "request-posted") sfx.warn();
         if (ev.type === "request-done") {
-          sfx.scoop();
+          sfx.questDone();
           this.questDone = { name: ev.request.title, reward: requestCost(ev.got), at: this.time };
         }
         if (ev.type === "request-expired") sfx.deny();
         if (ev.type === "milestone-done") {
-          sfx.scoop();
+          sfx.milestone();
           this.questDone = { name: ev.milestone.title, reward: requestCost(ev.got), at: this.time };
         }
       }
@@ -312,6 +313,39 @@ export class Session {
     }
     this.denied = null;
     this.questDone = { name: out.request.title, reward: requestCost(out.got), at: this.time };
+    if (!this.headless) sfx.scoop();
+    return true;
+  }
+
+  private bagHud() {
+    return {
+      used: usedSlots(this.bag),
+      max: this.bag.maxSlots,
+      items: listItems(this.bag).map((s) => ({ id: s.id, name: itemName(s.id), count: s.count })),
+      onUse: (item: { id?: string }) => {
+        if (item.id && isItemId(item.id)) this.tryUseItem(item.id);
+      },
+    };
+  }
+
+  private tryBagClick(x: number, y: number): boolean {
+    return clickBagStrip(x, y, this.bagHud(), this.time);
+  }
+
+  tryUseItem(id: string): boolean {
+    if (!isItemId(id)) {
+      this.denied = { text: "这个不能吃", at: this.time };
+      if (!this.headless) sfx.deny();
+      return false;
+    }
+    const out = useItem(this.bag, this.res, id);
+    if (!out.ok) {
+      this.denied = { text: out.reason === "not-usable" ? "这个不能吃" : "袋里没有了", at: this.time };
+      if (!this.headless) sfx.deny();
+      return false;
+    }
+    this.denied = null;
+    this.loot = { name: itemName(id), qty: 1, at: this.time };
     if (!this.headless) sfx.scoop();
     return true;
   }
@@ -417,11 +451,7 @@ export class Session {
         this.questDone && this.time - this.questDone.at < 2.2
           ? { name: this.questDone.name, reward: this.questDone.reward }
           : undefined,
-      bagSlots: {
-        used: usedSlots(this.bag),
-        max: this.bag.maxSlots,
-        items: listItems(this.bag).map((s) => ({ id: s.id, name: itemName(s.id), count: s.count })),
-      },
+      bagSlots: this.bagHud(),
       lootToast:
         this.loot && this.time - this.loot.at < 2.2
           ? { name: this.loot.name, qty: this.loot.qty }
