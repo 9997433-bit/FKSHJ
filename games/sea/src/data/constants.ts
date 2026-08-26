@@ -14,9 +14,9 @@
  *    这些数；对外仍导出 `TILE = 64`、`RAFT_ORIGIN` 等旧形状，绘制层
  *    不用跟着改。改平衡改本文件一处即可。
  *
- * 3. 【Round 1 新系统】INVENTORY / ITEM_DROP / REQUESTS / STORY
- *    （文件末尾第三段）。物品栏、委托板、剧情三个新模块出生即直接
- *    import 这些表，没有本地副本一说。接线契约见 ARCHITECTURE §7。
+ * 3. 【Round 1 新系统】文件末尾第三段：ITEM_DROP / ITEM_USE 是接线
+ *    时消费的真相；BAG / BOARD 是 inventory / expand 本地数值的文档
+ *    镜像（收编前以原件为准）。接线契约见 ARCHITECTURE §7。
  *
  * 约定：
  * - 单位：长度 = 逻辑像素（CANVAS 坐标系），时间 = 秒。
@@ -266,55 +266,71 @@ export const SKIFF = {
 } as const;
 
 // ═══════════════════════════════════════════════════════════════════
-// 三、Round 1 新系统（物品 / 委托 / 剧情）——出生即唯一真源
+// 三、Round 1 新系统（物品袋 / 请求板 / 剧情）
 // ═══════════════════════════════════════════════════════════════════
 //
-// 下面四张表由新模块直接 import（sim/inventory.ts、sim/expand.ts、
-// story/index.ts），不留本地副本。内容表不进本文件：物品定义在
-// data/catalog.ts、委托生成表在 sim/expand.ts、台词在 story/lines.ts。
-// 类型与函数签名的接线契约见 ARCHITECTURE §7。
-// 本段只加新数，前两段（探针基线）一个数没动。
-
-/** 物品栏（sim/inventory.ts 消费）。物品与六种资源分开存，互不占上限。 */
-export const INVENTORY = {
-  /** 单种物品持有上限，超出丢弃（与 RESOURCE_CAP 同哲学） */
-  maxPerItem: 20,
-  /** HUD 物品栏一屏展示的格数（只影响展示，不限持有种类） */
-  hudSlots: 6,
-} as const;
+// 新系统的**内容表**不在本文件：物品定义（含单格堆叠上限 stack）在
+// data/catalog.ts，请求板模板在 sim/expand.ts 的 REQUEST_KINDS，
+// 剧情条目（含每条的解锁条件与停留秒数）在 story/beats.ts。
+// 接线契约见 ARCHITECTURE §7。本段只加新数，前两段（探针基线）
+// 一个数没动。
+//
+// 本段沿用文件头的两分类：
+// - ITEM_DROP / ITEM_USE 是【接线时消费】——session 接「捞取掉物品」
+//   「点袋子吃喝」这两条线时直接 import，这里就是真相。
+// - BAG / BOARD 是【文档镜像】——真相分别在 sim/inventory.ts 的
+//   DEFAULT_SLOTS 与 sim/expand.ts 的 BOARD（两个模块本轮刻意自带
+//   数值，见各自文件头注释）；收编前改平衡改原件、同步这里。
 
 /**
- * 物品掉落（sim/inventory.ts 的 rollItemDrop 消费）。
- * 接线点：session.tryScoop() 捞取成功后掷一次，用 session.rng。
+ * 捞取附带掉落（接线点：session.tryScoop() 捞取成功后掷一次，
+ * 用 session.rng，禁 Math.random）。
  */
 export const ITEM_DROP = {
-  /** 每次捞取成功附带掉一件物品的概率 */
+  /** 每次捞取成功附带掉一件袋装物品的概率 */
   chance: 0.25,
-  /** 保底：连续 pityScoops 次没出货，下一次必出 */
+  /** 保底：连续 pityScoops 次没掉，下一次必掉 */
   pityScoops: 5,
 } as const;
 
 /**
- * 岛民委托板（sim/expand.ts 消费）。firstS 早于首场风暴（STORM.firstS
- * = 50s），玩家在第一场灾难前就有个主动目标。
+ * 可食用/饮用物品 → 资源的兑换率（接线点：HUD 点袋子用掉一件后，
+ * session 按本表走 rules.gain() 入库，受 RESOURCE_CAP 截断）。
+ * 键必须是 data/catalog.ts 的 ItemId；没列出的物品不能直接吃喝。
  */
-export const REQUESTS = {
-  /** 开局到第一单的秒数 */
-  firstS: 35,
-  /** 之后的发单间隔（秒）；板满 maxOpen 时挂起，腾格立刻补单 */
-  intervalS: 40,
-  /** 同时挂在板上的委托上限 */
-  maxOpen: 3,
-  /** 每单从发布到过期的秒数 */
-  expireS: 90,
+export const ITEM_USE = {
+  /** 咸海带：顶饿的下限 */
+  kelp: { food: 4 },
+  /** 鱼干：一顿正经饭 */
+  driedFish: { food: 8 },
+  /** 净水囊：约 22 秒的全队水耗 */
+  freshWater: { water: 8 },
 } as const;
 
-/** 剧情台词节流与日志（story/index.ts 消费）。展示形式归 HUD 定。 */
-export const STORY = {
-  /** 单条台词在 HUD 的停留秒数 */
-  toastS: 6,
-  /** 两条台词之间的最小间隔（秒） */
-  minGapS: 8,
-  /** 日志保留条数上限，超出丢最旧 */
-  logMax: 40,
+/** 【镜像】物品袋容量（格）= sim/inventory.ts 的 DEFAULT_SLOTS。 */
+export const BAG = { slots: 16 } as const;
+
+/**
+ * 【镜像】请求板节奏 = sim/expand.ts 的 BOARD（逐键同名同值）。
+ * 首单 12s 早于首场风暴（50s），玩家在第一场灾难前就有个主动目标；
+ * 难度档 = ⌊板龄 / tierEveryS⌋（≤ maxTier），越往后要得多、给得多、
+ * 时限短。真相在原件，先读那边的头注释再改。
+ */
+export const BOARD = {
+  slots: 3,
+  firstS: 12,
+  postGapS: 26,
+  postMinS: 13,
+  postDecayS: 1.5,
+  ttlS: 75,
+  ttlMinS: 42,
+  ttlPerTier: 11,
+  tierEveryS: 150,
+  maxTier: 3,
+  wantPerTier: 1,
+  rewardPerTier: 0.35,
+  streakAt: 3,
+  streakMul: 1.5,
+  diaryMax: 12,
+  urgentAt: 0.3,
 } as const;
